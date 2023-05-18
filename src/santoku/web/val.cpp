@@ -2,6 +2,12 @@
 
 
 
+
+
+
+
+
+
 extern "C" {
   #include "lua.h"
   #include "lauxlib.h"
@@ -148,19 +154,6 @@ int l_null (lua_State *L) {
   return 1;
 }
 
-int l_take_ownership (lua_State *L) {
-
-  EM_VAL v = (EM_VAL)lua_touserdata(L, -1);
-  push_val(L, new val(val::take_ownership(v)), false, 0);
-  return 1;
-}
-
-int l_module_property (lua_State *L) {
-  const char *str = luaL_checkstring(L, -1);
-  push_val(L, new val(val::module_property(str)), false, 0);
-  return 1;
-}
-
 int l_get (lua_State *L) {
   val *k = peek_val(L, -1);
   val *o = peek_val(L, -2);
@@ -287,6 +280,10 @@ int l_from (lua_State *L) {
       }))
     }), L, t, proto))), true, -t);
   } else if (type == LUA_TFUNCTION) {
+
+
+
+
     int fnref = luaL_ref(L, LUA_REGISTRYINDEX);
     lua_rawgeti(L, LUA_REGISTRYINDEX, fnref);
     push_val(L, new val(val::take_ownership((EM_VAL) EM_ASM_PTR(({
@@ -329,8 +326,6 @@ luaL_Reg fns[] = {
   { "object", l_object },
   { "undefined", l_undefined },
   { "null", l_null },
-  { "take_ownership", l_take_ownership },
-  { "module_property", l_module_property },
   { NULL, NULL }
 };
 

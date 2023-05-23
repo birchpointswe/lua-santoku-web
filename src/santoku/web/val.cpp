@@ -17,16 +17,32 @@ using namespace std;
 using namespace emscripten;
 
 
-#define MT "santoku_web"
 #define MTV "santoku_web_val"
-#define MTL "santoku_web_lua"
 
-#define debug(...) printf("%s:%d\t", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n");
+
+#define MTO "santoku_web_object"
+
+
+#define MTF "santoku_web_function"
+
+
+#define MTP "santoku_web_promise"
+
+#define debug(...) \
+  printf("%s:%d\t", __FILE__, __LINE__); \
+  printf(__VA_ARGS__); \
+  printf("\n");
 
 int IDX_TBL_VAL;
 
-int wrapfn (lua_State *);
+int MTO_FNS;
+int MTP_FNS;
+int MTF_FNS;
+
 int lua_to_val (lua_State *, int);
+int mtv_typeof (lua_State *);
+int mtv_new (lua_State *);
+int mtv_call (lua_State *);
 
 void args_to_vals (lua_State *L) {
   int argc = lua_gettop(L);
@@ -37,9 +53,12 @@ void args_to_vals (lua_State *L) {
 }
 
 val *peek_val (lua_State *L, int i) {
-  val **vp = (val **)luaL_checkudata(L, i, MTV);
-  val *v = *vp;
-  return v;
+  void *vp = NULL;
+  if (((vp = luaL_testudata(L, i, MTO)) == NULL) &&
+      ((vp = luaL_testudata(L, i, MTP)) == NULL) &&
+      ((vp = luaL_testudata(L, i, MTF)) == NULL))
+    vp = luaL_checkudata(L, i, MTV);
+  return *(val **)vp;
 }
 
 void push_val (lua_State *L, val *v) {
@@ -116,16 +135,23 @@ void push_val_lua (lua_State *L, val *v) {
   } else if (type == "number") {
     float x = v->as<float>();
     lua_pushnumber(L, x);
+  } else if (type == "boolean") {
+    bool x = v->as<bool>();
+    lua_pushboolean(L, x);
   } else if (type == "object") {
     if (!unmap_js(L, v)) {
+      bool isPromise = EM_ASM_INT(({
+        return Emval.toValue($0) instanceof Promise
+          ? 1 : 0;
+      }), v->as_handle());
       lua_newtable(L);
-      luaL_setmetatable(L, MTL);
+      luaL_setmetatable(L, isPromise ? MTP : MTO);
       map_js(L, v, -1);
     }
   } else if (type == "function") {
     if (!unmap_js(L, v)) {
-      lua_pushlightuserdata(L, v);
-      lua_pushcclosure(L, wrapfn, 1);
+      lua_newtable(L);
+      luaL_setmetatable(L, MTF);
       map_js(L, v, -1);
     }
   } else if (type == "undefined") {
@@ -136,25 +162,9 @@ void push_val_lua (lua_State *L, val *v) {
   }
 }
 
-int wrapfn (lua_State *L) {
-  int argc = lua_gettop(L);
-  int fni = lua_upvalueindex(1);
-  val *vp = (val *)lua_touserdata(L, fni);
-  lua_to_val(L, -argc);
-  val *this_ = peek_val(L, -1);
-  lua_pop(L, 1);
-  push_val_lua(L, new val(val::take_ownership((EM_VAL)EM_ASM_PTR(({
-    var this_ = Emval.toValue($1);
-    var fn = Emval.toValue($2);
-    fn = fn.bind(this_);
-    var args = Emval.toValue(Module.args($0, $3, $4));
-    var ret = fn(...args);
-    return Emval.toHandle(ret);
-  }), L, this_->as_handle(), vp->as_handle(), -argc + 1, argc - 1))));
-  return 1;
-}
-
 int lua_to_val (lua_State *L, int i) {
+  if (unmap_lua(L, i))
+    return 1;
   int type = lua_type(L, i);
   if (type == LUA_TSTRING) {
     push_val(L, new val(lua_tostring(L, i)));
@@ -163,48 +173,44 @@ int lua_to_val (lua_State *L, int i) {
   } else if (type == LUA_TBOOLEAN) {
     push_val(L, new val(lua_toboolean(L, i)));
   } else if (type == LUA_TTABLE) {
-    if (!unmap_lua(L, i)) {
-      lua_pushvalue(L, i);
-      int tblref = luaL_ref(L, LUA_REGISTRYINDEX);
-      push_val(L, new val(val::take_ownership((EM_VAL) EM_ASM_PTR(({
-        return Emval.toHandle(new Proxy({}, {
-          get(o, k) {
-            var val = Emval.toValue(Module.get($0, $1, Emval.toHandle(k)));
-            return val;
-          },
-          getOwnPropertyDescriptor(o, k) {
-            return { configurable: true, enumerable: true, value: o[k] };
-          },
-          ownKeys(o) {
-            var keys = Emval.toValue(Module.ownKeys($0, $1));
-            return keys;
-          },
-          set(o, v, k) {
-            Module.set($0, $1, Emval.toHandle(k), Emval.toHandle(v));
-          }
-        }))
-      }), L, tblref))));
-      val *v = peek_val(L, -1);
-      map_lua(L, v, tblref);
-    }
+    lua_pushvalue(L, i);
+    int tblref = luaL_ref(L, LUA_REGISTRYINDEX);
+    push_val(L, new val(val::take_ownership((EM_VAL) EM_ASM_PTR(({
+      return Emval.toHandle(new Proxy({}, {
+        get(o, k) {
+          var val = Emval.toValue(Module.get($0, $1, Emval.toHandle(k)));
+          return val;
+        },
+
+
+
+        getOwnPropertyDescriptor(o, k) {
+          return { configurable: true, enumerable: true, value: o[k] };
+        },
+        ownKeys(o) {
+          var keys = Emval.toValue(Module.ownKeys($0, $1));
+          return keys;
+        },
+        set(o, v, k) {
+          Module.set($0, $1, Emval.toHandle(k), Emval.toHandle(v));
+        }
+      }))
+    }), L, tblref))));
+    val *v = peek_val(L, -1);
+    map_lua(L, v, tblref);
   } else if (type == LUA_TFUNCTION) {
-    if (!unmap_lua(L, i)) {
-      lua_pushvalue(L, i);
-      int fnref = luaL_ref(L, LUA_REGISTRYINDEX);
-      push_val(L, new val(val::take_ownership((EM_VAL) EM_ASM_PTR(({
-        return Emval.toHandle(new Proxy(function () {}, {
-          get(o, k) {
-            return o[k];
-          },
-          apply(_, this_, args) {
-            args.unshift(this_);
-            return Emval.toValue(Module.call($0, $1, Emval.toHandle(args)));
-          }
-        }))
-      }), L, fnref))));
-      val *v = peek_val(L, -1);
-      map_lua(L, v, fnref);
-    }
+    lua_pushvalue(L, i);
+    int fnref = luaL_ref(L, LUA_REGISTRYINDEX);
+    push_val(L, new val(val::take_ownership((EM_VAL) EM_ASM_PTR(({
+      return Emval.toHandle(new Proxy(function () {}, {
+        apply(_, this_, args) {
+          args.unshift(this_);
+          return Emval.toValue(Module.call($0, $1, Emval.toHandle(args)));
+        }
+      }))
+    }), L, fnref))));
+    val *v = peek_val(L, -1);
+    map_lua(L, v, fnref);
   } else if (type == LUA_TUSERDATA) {
 
 
@@ -212,11 +218,11 @@ int lua_to_val (lua_State *L, int i) {
   } else if (type == LUA_TNIL) {
     push_val(L, new val(val::undefined()));
   } else {
+
+
     debug("Unhandled Lua type, pushing undefined: %d", type);
     push_val(L, new val(val::undefined()));
   }
-
-
 
   return 1;
 }
@@ -313,19 +319,6 @@ EMSCRIPTEN_BINDINGS(santoku_web_val) {
   emscripten::function("ownKeys", &j_ownKeys, allow_raw_pointers());
 }
 
-int mtl_index (lua_State *L) {
-
-  lua_rawgeti(L, LUA_REGISTRYINDEX, IDX_TBL_VAL);
-  lua_pushvalue(L, -3);
-  lua_gettable(L, -2);
-  val *v = (val *)lua_touserdata(L, -1);
-  lua_to_val(L, -3);
-  val *k = peek_val(L, -1);
-  val n = (*v)[*k];
-  push_val_lua(L, new val(n));
-  return 1;
-}
-
 int mt_call (lua_State *L) {
   lua_remove(L, 1);
   return lua_to_val(L, lua_gettop(L));
@@ -357,6 +350,95 @@ int mt_null (lua_State *L) {
   return 1;
 }
 
+int mto_index (lua_State *L) {
+  lua_rawgeti(L, LUA_REGISTRYINDEX, MTO_FNS);
+  lua_pushvalue(L, -2);
+  if (lua_gettable(L, -2) != LUA_TNIL)
+    return 1;
+  lua_pop(L, 2);
+  lua_rawgeti(L, LUA_REGISTRYINDEX, IDX_TBL_VAL);
+  lua_pushvalue(L, -3);
+  lua_gettable(L, -2);
+  val *v = (val *)lua_touserdata(L, -1);
+  lua_to_val(L, -3);
+  val *k = peek_val(L, -1);
+  val n = (*v)[*k];
+  push_val_lua(L, new val(n));
+  return 1;
+}
+
+int mto_instanceof (lua_State *L) {
+  mto_instanceof(L);
+  val *v = peek_val(L, -1);
+  push_val_lua(L, v);
+  return 1;
+}
+
+int mto_typeof (lua_State *L) {
+  mtv_typeof(L);
+  val *v = peek_val(L, -1);
+  push_val_lua(L, v);
+  return 1;
+}
+
+int mtp_index (lua_State *L) {
+  lua_rawgeti(L, LUA_REGISTRYINDEX, MTP_FNS);
+  lua_pushvalue(L, -2);
+  if (lua_gettable(L, -2) != LUA_TNIL)
+    return 1;
+  lua_pop(L, 2);
+  return mto_index(L);
+}
+
+
+int mtp_await (lua_State *L) {
+  args_to_vals(L);
+  val *v = peek_val(L, -2);
+  val *f = peek_val(L, -1);
+  EM_ASM(({
+    var v = Emval.toValue($0);
+    var f = Emval.toValue($1);
+    v.then((...args) => {
+      args.unshift(true);
+      return f(...args);
+    });
+    v.catch((...args) => {
+      args.unshift(false);
+      return f(...args);
+    });
+  }), v->as_handle(), f->as_handle());
+  return 0;
+}
+
+int mtf_index (lua_State *L) {
+  lua_rawgeti(L, LUA_REGISTRYINDEX, MTF_FNS);
+  lua_pushvalue(L, -2);
+  if (lua_gettable(L, -2) != LUA_TNIL)
+    return 1;
+  lua_pop(L, 2);
+  return mto_index(L);
+}
+
+int mtf_call (lua_State *L) {
+  mtv_call(L);
+  val *v = peek_val(L, -1);
+  push_val_lua(L, v);
+  return 1;
+}
+
+int mtf_new (lua_State *L) {
+  mtv_new(L);
+  val *v = peek_val(L, -1);
+  push_val_lua(L, v);
+  return 1;
+}
+
+int mtv_val (lua_State *L) {
+  val *v = peek_val(L, -1);
+  push_val(L, new val(v));
+  return 1;
+}
+
 int mtv_lua (lua_State *L) {
   val *v = peek_val(L, -1);
   push_val_lua(L, v);
@@ -381,13 +463,27 @@ int mtv_set (lua_State *L) {
 }
 
 int mtv_typeof (lua_State *L) {
+  args_to_vals(L);
   val *v = peek_val(L, -1);
   val *t = new val(v->typeof());
   push_val(L, t);
   return 1;
 }
 
+int mtv_instanceof (lua_State *L) {
+  args_to_vals(L);
+  val *v = peek_val(L, -2);
+  val *c = peek_val(L, -1);
+  lua_pushboolean(L, EM_ASM_INT(({
+    var v = Emval.toValue($0);
+    var c = Emval.toValue($1);
+    return v instanceof c ? 1 : 0;
+  }), v->as_handle(), c->as_handle()));
+  return 1;
+}
+
 int mtv_call (lua_State *L) {
+  args_to_vals(L);
   int n = lua_gettop(L);
   val *v = peek_val(L, -n);
   val *t = lua_type(L, -n + 1) == LUA_TNIL
@@ -405,6 +501,7 @@ int mtv_call (lua_State *L) {
 }
 
 int mtv_new (lua_State *L) {
+  args_to_vals(L);
   int n = lua_gettop(L);
   val *v = peek_val(L, -n);
   val *r = new val(val::take_ownership((EM_VAL)EM_ASM_PTR(({
@@ -416,51 +513,53 @@ int mtv_new (lua_State *L) {
   return 1;
 }
 
+luaL_Reg mtp_fns[] = {
+  { "await", mtp_await },
+  { NULL, NULL }
+};
 
+luaL_Reg mtf_fns[] = {
+  { "new", mtf_new },
+  { NULL, NULL }
+};
 
-
-
-
-
+luaL_Reg mto_fns[] = {
+  { "typeof", mto_typeof },
+  { "instanceof", mto_instanceof },
+  { "val", mtv_val },
+  { NULL, NULL }
+};
 
 luaL_Reg mtv_fns[] = {
-
+  { "val", mtv_val },
   { "lua", mtv_lua },
   { "get", mtv_get },
   { "set", mtv_set },
-
   { "typeof", mtv_typeof },
+  { "instanceof", mtv_instanceof },
   { "call", mtv_call },
   { "new", mtv_new },
-
   { NULL, NULL }
-
 };
 
 luaL_Reg mt_fns[] = {
-
   { "global", mt_global },
   { "array", mt_array },
   { "object", mt_object },
   { "undefined", mt_undefined },
   { "null", mt_null },
-
-
-
   { NULL, NULL }
-
 };
 
 int luaopen_santoku_web_val (lua_State *L) {
 
   lua_newtable(L);
 
-  luaL_newmetatable(L, MT);
+  lua_newtable(L);
   lua_pushcfunction(L, mt_call);
   lua_setfield(L, -2, "__call");
-  lua_pop(L, 1);
+  lua_setmetatable(L, -2);
 
-  luaL_setmetatable(L, MT);
   luaL_setfuncs(L, mt_fns, 0);
 
   luaL_newmetatable(L, MTV);
@@ -469,9 +568,21 @@ int luaopen_santoku_web_val (lua_State *L) {
   lua_setfield(L, -2, "__index");
   lua_pop(L, 1);
 
-  luaL_newmetatable(L, MTL);
-  lua_pushcfunction(L, mtl_index);
+  luaL_newmetatable(L, MTO);
+  lua_pushcfunction(L, mto_index);
   lua_setfield(L, -2, "__index");
+  lua_pop(L, 1);
+
+  luaL_newmetatable(L, MTP);
+  lua_pushcfunction(L, mtp_index);
+  lua_setfield(L, -2, "__index");
+  lua_pop(L, 1);
+
+  luaL_newmetatable(L, MTF);
+  lua_pushcfunction(L, mtf_index);
+  lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, mtf_call);
+  lua_setfield(L, -2, "__call");
   lua_pop(L, 1);
 
   EM_ASM(({
@@ -483,8 +594,19 @@ int luaopen_santoku_web_val (lua_State *L) {
   lua_pushstring(L, "k");
   lua_setfield(L, -2, "__mode");
   lua_setmetatable(L, -2);
-
   IDX_TBL_VAL = luaL_ref(L, LUA_REGISTRYINDEX);
+
+  lua_newtable(L);
+  luaL_setfuncs(L, mto_fns, 0);
+  MTO_FNS = luaL_ref(L, LUA_REGISTRYINDEX);
+
+  lua_newtable(L);
+  luaL_setfuncs(L, mtp_fns, 0);
+  MTP_FNS = luaL_ref(L, LUA_REGISTRYINDEX);
+
+  lua_newtable(L);
+  luaL_setfuncs(L, mtf_fns, 0);
+  MTF_FNS = luaL_ref(L, LUA_REGISTRYINDEX);
 
   return 1;
 }

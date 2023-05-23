@@ -43,6 +43,7 @@ int lua_to_val (lua_State *, int);
 int mtv_typeof (lua_State *);
 int mtv_new (lua_State *);
 int mtv_call (lua_State *);
+int mtv_set (lua_State *);
 
 void args_to_vals (lua_State *L) {
   int argc = lua_gettop(L);
@@ -367,6 +368,11 @@ int mto_index (lua_State *L) {
   return 1;
 }
 
+int mto_newindex (lua_State *L) {
+
+  return mtv_set(L);
+}
+
 int mto_instanceof (lua_State *L) {
   mto_instanceof(L);
   val *v = peek_val(L, -1);
@@ -566,21 +572,29 @@ int luaopen_santoku_web_val (lua_State *L) {
   lua_newtable(L);
   luaL_setfuncs(L, mtv_fns, 0);
   lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, mto_newindex);
+  lua_setfield(L, -2, "__newindex");
   lua_pop(L, 1);
 
   luaL_newmetatable(L, MTO);
   lua_pushcfunction(L, mto_index);
   lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, mto_newindex);
+  lua_setfield(L, -2, "__newindex");
   lua_pop(L, 1);
 
   luaL_newmetatable(L, MTP);
   lua_pushcfunction(L, mtp_index);
   lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, mto_newindex);
+  lua_setfield(L, -2, "__newindex");
   lua_pop(L, 1);
 
   luaL_newmetatable(L, MTF);
   lua_pushcfunction(L, mtf_index);
   lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, mto_newindex);
+  lua_setfield(L, -2, "__newindex");
   lua_pushcfunction(L, mtf_call);
   lua_setfield(L, -2, "__call");
   lua_pop(L, 1);

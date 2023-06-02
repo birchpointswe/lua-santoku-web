@@ -1,6 +1,11 @@
 
 
 
+
+
+
+
+
 extern "C" {
   #include "lua.h"
   #include "lauxlib.h"
@@ -182,12 +187,31 @@ int lua_to_val (lua_State *L, int i) {
     push_val(L, new val(lua_toboolean(L, i)));
   } else if (type == LUA_TTABLE) {
     lua_pushvalue(L, i);
+    lua_pushvalue(L, -1);
+    lua_getglobal(L, "require");
+    lua_pushstring(L, "santoku.compat");
+    lua_call(L, 1, 1);
+    lua_pushstring(L, "isarray");
+    lua_gettable(L, -2);
+    lua_insert(L, -3);
+    lua_pop(L, 1);
+    lua_call(L, 1, 1);
+    bool isarray = lua_toboolean(L, -1);
+    lua_pop(L, 1);
     int tblref = luaL_ref(L, LUA_REGISTRYINDEX);
     push_val(L, new val(val::take_ownership((EM_VAL) EM_ASM_PTR(({
-      return Emval.toHandle(new Proxy({}, {
+      var obj = $2 ? [] : {};
+      return Emval.toHandle(new Proxy(obj, {
         get(o, k) {
-          var val = Emval.toValue(Module.get($0, $1, Emval.toHandle(k)));
-          return val;
+          if (o instanceof Array && k == "length") {
+            return Module.len($0, $1);
+          } else if (o instanceof Array && !isNaN(+k)) {
+            var val = Emval.toValue(Module.get($0, $1, Emval.toHandle(+k + 1)));
+            return val;
+          } else {
+            var val = Emval.toValue(Module.get($0, $1, Emval.toHandle(k)));
+            return val;
+          }
         },
 
 
@@ -200,10 +224,14 @@ int lua_to_val (lua_State *L, int i) {
           return keys;
         },
         set(o, v, k) {
-          Module.set($0, $1, Emval.toHandle(k), Emval.toHandle(v));
+          if (o instanceof Array && typeof k == "number") {
+            Module.set($0, $1, Emval.toHandle(k + 1), Emval.toHandle(v));
+          } else {
+            Module.set($0, $1, Emval.toHandle(k), Emval.toHandle(v));
+          }
         }
       }))
-    }), L, tblref))));
+    }), L, tblref, isarray))));
     val *v = peek_val(L, -1);
     map_lua(L, v, tblref);
   } else if (type == LUA_TFUNCTION) {
@@ -274,7 +302,11 @@ int j_ownKeys (int Lp, int tblref) {
   while (lua_next(L, -2) != 0) {
     lua_to_val(L, -2);
     val *v = peek_val(L, -1);
-    keys->call<val>("push", *v);
+    val *s = new val(val::take_ownership((EM_VAL)EM_ASM_PTR(({
+      var v = Emval.toValue($0);
+      return Emval.toHandle(String(v));
+    }), v->as_handle())));
+    keys->call<val>("push", *s);
     lua_pop(L, 2);
   }
   return (int) keys->as_handle();
@@ -318,6 +350,20 @@ int j_call (int Lp, int fnp, int argsp) {
   }
 }
 
+int j_len (int Lp, int tblref) {
+  lua_State *L = (lua_State *)Lp;
+  lua_getglobal(L, "require");
+  lua_pushstring(L, "santoku.table");
+  lua_call(L, 1, 1);
+  lua_pushstring(L, "len");
+  lua_gettable(L, -2);
+  lua_rawgeti(L, LUA_REGISTRYINDEX, tblref);
+  lua_call(L, 1, 1);
+  int len = lua_tointeger(L, -1);
+  lua_pop(L, 2);
+  return len;
+}
+
 EMSCRIPTEN_BINDINGS(santoku_web_val) {
   emscripten::function("arg", &j_arg, allow_raw_pointers());
   emscripten::function("args", &j_args, allow_raw_pointers());
@@ -325,6 +371,7 @@ EMSCRIPTEN_BINDINGS(santoku_web_val) {
   emscripten::function("set", &j_set, allow_raw_pointers());
   emscripten::function("call", &j_call, allow_raw_pointers());
   emscripten::function("ownKeys", &j_ownKeys, allow_raw_pointers());
+  emscripten::function("len", &j_len, allow_raw_pointers());
 }
 
 int mt_call (lua_State *L) {

@@ -1,3 +1,6 @@
+local assert = require("luassert")
+local test = require("santoku.test")
+local val = require("santoku.web.val")
 
 
 
@@ -11,3 +14,49 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+test("js", function ()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+end)

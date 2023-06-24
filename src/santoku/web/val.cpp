@@ -4,6 +4,12 @@
 
 
 
+
+
+
+
+
+
 extern "C" {
   #include "lua.h"
   #include "lauxlib.h"
@@ -195,8 +201,22 @@ void push_val_lua (lua_State *L, val *v, bool recurse) {
   }
 }
 
+void set_islua (val *v) {
+  EM_ASM(({
+    var v = Emval.toValue($0);
+    Module.IDX_IS_LUA.add(v);
+  }), v->as_handle());
+}
+
+bool get_islua (val *v) {
+  return (bool) EM_ASM_INT(({
+    var v = Emval.toValue($0);
+    return Module.IDX_IS_LUA.has(v);
+  }), v->as_handle());
+}
+
 int lua_to_val (lua_State *L, int i, bool recurse) {
-  if (unmap_lua(L, i))
+  if (!recurse && unmap_lua(L, i))
     return 1;
   int type = lua_type(L, i);
   if (type == LUA_TSTRING) {
@@ -272,21 +292,42 @@ int lua_to_val (lua_State *L, int i, bool recurse) {
       }), L, tblref, isarray))));
       val *v = peek_val(L, -1);
       map_lua(L, v, tblref);
+      set_islua(peek_val(L, -1));
     } else if (isarray) {
-
-
-
-
-
-      push_val(L, new val(val::array()));
+      lua_pushvalue(L, -1);
+      lua_getglobal(L, "require");
+      lua_pushstring(L, "santoku.table");
+      lua_call(L, 1, 1);
+      lua_pushstring(L, "len");
+      lua_gettable(L, -2);
+      lua_insert(L, -3);
+      lua_pop(L, 1);
+      lua_call(L, 1, 1);
+      int len = lua_tointeger(L, -1);
+      lua_pop(L, 1);
+      val *arr = new val(val::array());
+      for (int j = 1; j <= len; j ++) {
+        lua_pushinteger(L, j);
+        lua_gettable(L, -2);
+        lua_to_val(L, -1, true);
+        val *el = peek_val(L, -1);
+        arr->set(j - 1, *el);
+        lua_pop(L, 2);
+      }
+      push_val(L, arr);
     } else {
-
-
-
-
-
-
-      push_val(L, new val(val::object()));
+      val *obj = new val(val::object());
+      lua_pushnil(L);
+      while (lua_next(L, -2) != 0) {
+        lua_to_val(L, -2, true);
+        lua_to_val(L, -2, true);
+        val *kk = peek_val(L, -2);
+        val *vv = peek_val(L, -1);
+        obj->set(*kk, *vv);
+        lua_pop(L, 3);
+      }
+      lua_pop(L, 1);
+      push_val(L, obj);
     }
   } else if (type == LUA_TFUNCTION) {
     lua_pushvalue(L, i);
@@ -306,6 +347,7 @@ int lua_to_val (lua_State *L, int i, bool recurse) {
     }), L, fnref))));
     val *v = peek_val(L, -1);
     map_lua(L, v, fnref);
+    set_islua(v);
   } else if (type == LUA_TUSERDATA) {
 
 
@@ -465,21 +507,6 @@ int mt_call (lua_State *L) {
   }
 }
 
-int mt_tojs (lua_State *L) {
-  int n = lua_gettop(L);
-  int vidx;
-  bool recurse;
-  if (n == 2) {
-    vidx = -2;
-    recurse = lua_toboolean(L, -1);
-  } else {
-    vidx = -1;
-    recurse =  false;
-  }
-  lua_to_val(L, vidx, recurse);
-  return 1;
-}
-
 int mt_global (lua_State *L) {
   const char *str = luaL_checkstring(L, -1);
   push_val(L, new val(val::global(str)));
@@ -596,9 +623,21 @@ int mtf_new (lua_State *L) {
 }
 
 int mtv_val (lua_State *L) {
-  val *v = peek_val(L, -1);
-  push_val(L, new val(v));
-  return 1;
+  int n = lua_gettop(L);
+  if (n > 1) {
+    val *v = peek_val(L, -n);
+    bool recurse = lua_toboolean(L, -n + 1);
+    if (unmap_js(L, v)) {
+      lua_to_val(L, -1, recurse);
+    } else {
+      push_val(L, new val(*v));
+    }
+    return 1;
+  } else {
+    val *v = peek_val(L, -1);
+    push_val(L, new val(*v));
+    return 1;
+  }
 }
 
 int mtv_lua (lua_State *L) {
@@ -629,6 +668,16 @@ int mtv_set (lua_State *L) {
   val *o = peek_val(L, -3);
   o->set(*k, *v);
   return 0;
+}
+
+int mtv_isval (lua_State *L) {
+  lua_pushboolean(L, !get_islua(peek_val(L, -1)));
+  return 1;
+}
+
+int mtv_islua (lua_State *L) {
+  lua_pushboolean(L, get_islua(peek_val(L, -1)));
+  return 1;
 }
 
 int mtv_typeof (lua_State *L) {
@@ -717,6 +766,8 @@ luaL_Reg mtv_fns[] = {
   { "lua", mtv_lua },
   { "get", mtv_get },
   { "set", mtv_set },
+  { "islua", mtv_islua },
+  { "isval", mtv_isval },
   { "typeof", mtv_typeof },
   { "instanceof", mtv_instanceof },
   { "call", mtv_call },
@@ -725,7 +776,6 @@ luaL_Reg mtv_fns[] = {
 };
 
 luaL_Reg mt_fns[] = {
-  { "tojs", mt_tojs },
   { "global", mt_global },
   { "array", mt_array },
   { "object", mt_object },
@@ -778,6 +828,7 @@ int luaopen_santoku_web_val (lua_State *L) {
 
   EM_ASM(({
     Module.IDX_VAL_REF = new WeakMap();
+    Module.IDX_IS_LUA = new WeakSet();
   }));
 
   lua_newtable(L);

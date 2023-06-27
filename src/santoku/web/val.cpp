@@ -152,9 +152,22 @@ void push_val_lua (lua_State *L, val *v, bool recurse) {
     string x = v->as<string>();
     lua_pushstring(L, x.c_str());
   } else if (type == "number") {
+    bool isInteger = EM_ASM_INT(({
+      try {
+        var v = Emval.toValue($0);
+        return Number.isInteger(v);
+      } catch (_) {
+        return false;
+      }
+    }), v->as_handle());
+    if (isInteger) {
 
-    double x = v->as<double>();
-    lua_pushnumber(L, x);
+      long x = v->as<long>();
+      lua_pushinteger(L, x);
+    } else {
+      double x = v->as<double>();
+      lua_pushnumber(L, x);
+    }
   } else if (type == "bigint") {
 
 
@@ -224,7 +237,7 @@ int lua_to_val (lua_State *L, int i, bool recurse) {
   } else if (type == LUA_TNUMBER) {
     push_val(L, new val(lua_tonumber(L, i)));
   } else if (type == LUA_TBOOLEAN) {
-    push_val(L, new val(lua_toboolean(L, i)));
+    push_val(L, new val(lua_toboolean(L, i) ? true : false));
   } else if (type == LUA_TTABLE) {
     lua_pushvalue(L, i);
     lua_pushvalue(L, -1);

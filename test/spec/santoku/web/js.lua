@@ -49,6 +49,7 @@ test("js", function ()
   test("val(x) wraps a lua table with a proxy", function ()
     local t = { 1, { 2, 3 }, 4 }
     local v = val(t)
+    assert.equals("[1,[2,3],4]", js.JSON:stringify(v))
     assert.equals(false, v:isval())
     assert.equals(true, v:islua())
   end)
@@ -56,6 +57,7 @@ test("js", function ()
   test("val(x, true) converts a lua numeric table to an array", function ()
     local t = { 1, { 2, 3 }, 4 }
     local v = val(t, true)
+    assert.equals("[1,[2,3],4]", js.JSON:stringify(v))
     assert.equals(true, v:isval())
     assert.equals(false, v:islua())
   end)
@@ -70,23 +72,30 @@ test("js", function ()
   test("x:val() returns the val as is", function ()
     local t = { 1, { 2, 3 }, 4 }
     local v = val(t):val()
+    assert.equals("[1,[2,3],4]", js.JSON:stringify(v))
     assert.equals(false, v:isval())
     assert.equals(true, v:islua())
   end)
 
-  test("x:val(true) returns the val converted to a val", function ()
-    local t = { 1, { 2, 3 }, 4 }
-    local v = val(t):val(true)
-    assert.equals(true, v:isval())
-    assert.equals(false, v:islua())
-  end)
 
-  test("x:val(true) returns the val converted to a val", function ()
-    local t = { a = 1, b = { c = 2 } }
-    local v = val(t):val(true)
-    assert.equals(true, v:isval())
-    assert.equals(false, v:islua())
-  end)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

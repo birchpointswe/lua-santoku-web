@@ -6,7 +6,9 @@
 
 local vec = require("santoku.vector")
 
-return function (callback, global)
+return function (callback, global, opts)
+
+  opts = opts or {}
 
   local JSON = global.JSON
   local console = global.console
@@ -119,9 +121,21 @@ return function (callback, global)
 
 
 
-  wrapPrint()
-  wrapErr()
-  wrapLogs()
+  if opts.print ~= false then
+    wrapPrint()
+  end
+
+  if opts.error ~= false then
+    wrapErr()
+  end
+
+  if opts.logs ~= false then
+    wrapLogs()
+  end
+
+
+
+
 
 
   return {

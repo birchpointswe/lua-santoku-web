@@ -910,14 +910,18 @@ int luaopen_santoku_web_val (lua_State *L) {
   lua_pop(L, 1);
 
   EM_ASM(({
-    Module.IDX_VAL_REF = new WeakMap();
-    Module.IDX_IS_LUA = new WeakSet();
+
+    Module.IDX_VAL_REF = new Map();
+    Module.IDX_IS_LUA = new Set();
+
+
   }));
 
   lua_newtable(L);
   lua_newtable(L);
-  lua_pushstring(L, "k");
-  lua_setfield(L, -2, "__mode");
+
+
+
   lua_setmetatable(L, -2);
   IDX_TBL_VAL = luaL_ref(L, LUA_REGISTRYINDEX);
 

@@ -1,9 +1,3 @@
-
-
-
-
-
-
 local vec = require("santoku.vector")
 
 return function (callback, global, opts)
@@ -13,9 +7,6 @@ return function (callback, global, opts)
   local JSON = global.JSON
   local console = global.console
 
-
-
-  local oldwinerr = global and global.onerror
   local oldfetch = global and global.fetch
   local logtypes = vec("log", "error")
   local oldlogs = {}
@@ -52,97 +43,17 @@ return function (callback, global, opts)
     end)
   end
 
-  local function onErr (ev)
-    callback(JSON:stringify({
-      source = "error",
-      event = ev,
-      name = ev and ev.name,
-      message = ev and ev.message,
-    }))
-    if oldwinerr then
-      oldwinerr(console, ev)
-    end
-  end
-
-  local function wrapErr ()
-    if global then
-      global:addEventListener("error", function (_, ev)
-        onErr(ev)
-      end)
-    end
-  end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   if opts.print ~= false then
     wrapPrint()
-  end
-
-  if opts.error ~= false then
-    wrapErr()
   end
 
   if opts.logs ~= false then
     wrapLogs()
   end
 
-
-
-
-
-
   return {
     oldlogs = oldlogs,
-    oldwinerr = oldwinerr,
     oldfetch = oldfetch,
-    onErr = onErr
   }
 
 end

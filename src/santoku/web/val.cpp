@@ -11,9 +11,19 @@
 
 
 extern "C" {
+
   #include "lua.h"
   #include "lauxlib.h"
-  int luaopen_santoku_web_val (lua_State *L);
+
+  int luaopen_santoku_web_val (lua_State *);
+  int j_arg (int, int);
+
+
+
+
+  int j_args (int, int, int);
+  int j_call (int, int, int);
+
 }
 
 #include "emscripten.h"
@@ -362,7 +372,13 @@ int lua_to_val (lua_State *L, int i, bool recurse) {
         return Emval.toHandle(new Proxy(function () {}, {
           apply(_, this_, args) {
             args.unshift(this_);
-            return Emval.toValue(Module.call($0, $1, Emval.toHandle(args)));
+
+
+
+            var r = Module.ccall("j_call", "object",
+                ["number", "number", "object"],
+                [$0, $1, Emval.toHandle(args)]);
+            return Emval.toValue(r);
           }
         }))
       } catch (e) {
@@ -396,6 +412,18 @@ int j_arg (int Lp, int i) {
   return (int)v;
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
 int j_args (int Lp, int arg0, int argc) {
   lua_State *L = (lua_State *)Lp;
   return (int) EM_ASM_PTR(({
@@ -409,8 +437,12 @@ int j_args (int Lp, int arg0, int argc) {
                 return { done: true };
               } else {
                 i = i + 1;
-                var arg = Module.arg($0, i + $1 - 1);
-                var val = Emval.toValue(arg);
+
+
+
+                var val = Emval.toValue(Module.ccall("j_arg",  "object",
+                  ["number", "number"],
+                  [$0, i + $1 - 1]));
                 return { done: false, value: val };
               }
             }
@@ -519,13 +551,18 @@ int j_len (int Lp, int tblref) {
   return len;
 }
 
+
+
+
+
 EMSCRIPTEN_BINDINGS(santoku_web_val) {
   emscripten::function("error", &j_error, allow_raw_pointers());
-  emscripten::function("arg", &j_arg, allow_raw_pointers());
-  emscripten::function("args", &j_args, allow_raw_pointers());
+
+
+
   emscripten::function("get", &j_get, allow_raw_pointers());
   emscripten::function("set", &j_set, allow_raw_pointers());
-  emscripten::function("call", &j_call, allow_raw_pointers());
+
   emscripten::function("ownKeys", &j_ownKeys, allow_raw_pointers());
   emscripten::function("len", &j_len, allow_raw_pointers());
 }
@@ -590,7 +627,6 @@ int mto_index (lua_State *L) {
 }
 
 int mto_newindex (lua_State *L) {
-
   return mtv_set(L);
 }
 
@@ -617,34 +653,26 @@ int mtp_index (lua_State *L) {
   return mto_index(L);
 }
 
+EM_ASYNC_JS(int, run_await, (int ref), {
+  try {
+    var v = Emval.toValue(ref);
+    var r = await v;
+    return Emval.toHandle({ status: true, result: r });
+  } catch (e) {
+    return Emval.toHandle({ status: false, result: e });
+  }
+});
+
 int mtp_await (lua_State *L) {
   args_to_vals(L);
-  val *v = peek_val(L, -2);
-  val *f = peek_val(L, -1);
-  EM_ASM(({
-    var v = Emval.toValue($0);
-    var f = Emval.toValue($1);
-    v.then((...args) => {
-      try {
-        args.unshift(true);
-        var r = f(...args);
-        return r;
-      } catch (e) {
-        Module.error($0, Emval.toHandle(e));
-        return undefined;
-      }
-    }, (...args) => {
-      try {
-        args.unshift(false);
-        var r = f(...args);
-        return r;
-      } catch (e) {
-        Module.error($0, Emval.toHandle(e));
-        return undefined;
-      }
-    });
-  }), v->as_handle(), f->as_handle());
-  return 0;
+  val *v = peek_val(L, -1);
+  val *vv = new val(val::take_ownership((EM_VAL) run_await((int)v->as_handle())));
+  val *status = new val((*vv)["status"]);
+  val *result = new val((*vv)["result"]);
+  lua_pop(L, 1);
+  push_val_lua(L, status, false);
+  push_val_lua(L, result, false);
+  return 2;
 }
 
 int mtf_index (lua_State *L) {
@@ -809,7 +837,9 @@ int mtv_call (lua_State *L) {
       var ths = Emval.toValue($2);
       if (ths != undefined)
         fn = fn.bind(ths);
-      var args = Emval.toValue(Module.args($0, $3, $4));
+      var args = Emval.toValue(Module.ccall("j_args", "object",
+        ["number", "number", "number"],
+        [$0, $3, $4]));
       var args = [ ...args ];
       return Emval.toHandle(fn(...args));
     } catch (e) {
@@ -828,8 +858,12 @@ int mtv_new (lua_State *L) {
   val *r = new val(val::take_ownership((EM_VAL)EM_ASM_PTR(({
     try {
       var obj = Emval.toValue($1);
-      var args = Emval.toValue(Module.args($0, $2, $3));
-      return Emval.toHandle(new obj(...args));
+      var args = Emval.toValue(Module.ccall("j_args", "object",
+        ["number", "number", "number"],
+        [$0, $2, $3]));
+      var args = [ ...args ];
+      var inst = new obj(...args);
+      return Emval.toHandle(inst);
     } catch (e) {
       Module.error($0, Emval.toHandle(e));
       return undefined;

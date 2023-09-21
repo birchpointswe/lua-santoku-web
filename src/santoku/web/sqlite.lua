@@ -20,44 +20,38 @@ local function cast_param (p)
   end
 end
 
-M.open_opfs = function (dbfile, callback)
+M.open_opfs = function (dbfile)
+  return err.pwrap(function (check)
 
-  js:sqlite3InitModule():await(function (_, ok, wsqlite)
+    local wsqlite = check(js:sqlite3InitModule():await())
 
-    if not ok then
-      callback(false, wsqlite)
-      return
-    end
+    return sqlite.wrap({
 
-    callback(err.pwrap(function ()
+      db = wsqlite.oo1.OpfsDb:new(dbfile),
 
-      return sqlite.wrap({
+      exec = function (db, sql)
+        local ok, err = pcall(db.db.exec, db.db, sql)
+        if not ok then
+          db.err = err
+          return sqlite.ERROR
+        else
+          db.err = nil
+          return sqlite.OK
+        end
+      end,
 
-        db = wsqlite.oo1.OpfsDb:new(dbfile),
+      prepare = function (db, sql)
+        local ok, stmt = pcall(db.db.prepare, db.db, sql)
+        if not ok then
+          db.err = stmt
+          return nil
+        else
+          db.err = nil
+          return setmetatable({
 
-        exec = function (db, sql)
-          local ok, err = pcall(db.db.exec, db.db, sql)
-          if not ok then
-            db.err = err
-            return sqlite.ERROR
-          else
-            db.err = nil
-            return sqlite.OK
-          end
-        end,
-
-        prepare = function (db, sql)
-          local ok, stmt = pcall(db.db.prepare, db.db, sql)
-          if not ok then
-            db.err = stmt
-            return nil
-          else
-            db.err = nil
-            return setmetatable({
-
-              bind_names = function (_, t)
-                local ok, err = pcall(function ()
-                  for k, v in pairs(t) do
+            bind_names = function (_, t)
+              local ok, err = pcall(function ()
+                for k, v in pairs(t) do
 
 
 
@@ -68,90 +62,87 @@ M.open_opfs = function (dbfile, callback)
 
 
 
-                    stmt:bind(":" .. k, cast_param(v))
-                  end
-                end)
-                if ok then
-                  return sqlite.OK
-                else
-
-                  error(err)
-                  return sqlite.ERROR
+                  stmt:bind(":" .. k, cast_param(v))
                 end
-              end,
-
-              bind_values = function (_, ...)
-                local ok, err = pcall(function (...)
-                  for i = 1, select("#", ...) do
-                    stmt:bind(i, cast_param(select(i, ...)))
-                  end
-                end, ...)
-                if ok then
-                  return sqlite.OK
-                else
-
-                  error(err)
-                  return sqlite.ERROR
-                end
-              end,
-
-              step = function ()
-                local ok, res = pcall(stmt.step, stmt)
-                if not ok then
-                  db.err = res
-                  return sqlite.ERROR
-                elseif res then
-                  db.err = nil
-                  return sqlite.ROW
-                else
-                  db.err = nil
-                  return sqlite.DONE
-                end
-              end,
-
-              get_named_values = function ()
-                local ret = {}
-                for i = 0, stmt.columnCount - 1 do
-                  local k = stmt:getColumnName(i)
-                  local v = stmt:get(i)
-                  ret[k] = v
-                end
-                return ret
-              end,
-
-              reset = function ()
-                stmt:reset(true)
+              end)
+              if ok then
                 return sqlite.OK
-              end,
+              else
 
-            }, {
-              __index = stmt
-            })
-          end
-        end,
+                error(err)
+                return sqlite.ERROR
+              end
+            end,
 
-        last_insert_rowid = function (db)
-          return wsqlite.capi:sqlite3_last_insert_rowid(db.db.pointer)
-        end,
+            bind_values = function (_, ...)
+              local ok, err = pcall(function (...)
+                for i = 1, select("#", ...) do
+                  stmt:bind(i, cast_param(select(i, ...)))
+                end
+              end, ...)
+              if ok then
+                return sqlite.OK
+              else
 
-        errcode = function (db)
-          if db.err then
-            return db.err.name
-          end
-        end,
+                error(err)
+                return sqlite.ERROR
+              end
+            end,
 
-        errmsg = function (db)
-          if db.err then
-            return db.err.message
-          end
-        end,
+            step = function ()
+              local ok, res = pcall(stmt.step, stmt)
+              if not ok then
+                db.err = res
+                return sqlite.ERROR
+              elseif res then
+                db.err = nil
+                return sqlite.ROW
+              else
+                db.err = nil
+                return sqlite.DONE
+              end
+            end,
 
-      })
+            get_named_values = function ()
+              local ret = {}
+              for i = 0, stmt.columnCount - 1 do
+                local k = stmt:getColumnName(i)
+                local v = stmt:get(i)
+                ret[k] = v
+              end
+              return ret
+            end,
 
-    end))
+            reset = function ()
+              stmt:reset(true)
+              return sqlite.OK
+            end,
+
+          }, {
+            __index = stmt
+          })
+        end
+      end,
+
+      last_insert_rowid = function (db)
+        return wsqlite.capi:sqlite3_last_insert_rowid(db.db.pointer)
+      end,
+
+      errcode = function (db)
+        if db.err then
+          return db.err.name
+        end
+      end,
+
+      errmsg = function (db)
+        if db.err then
+          return db.err.message
+        end
+      end,
+
+    })
 
   end)
-
 end
 
 return M

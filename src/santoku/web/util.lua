@@ -6,8 +6,18 @@ local history = js.history
 local document = js.document
 local Array = js.Array
 local Promise = js.Promise
+local global = js.self or js.global or js.window
 
 local M = {}
+
+
+M.fetch = function (... )
+
+
+
+
+  return global:fetch(... )
+end
 
 M.promise = function (ok, res)
   return Promise:new(function (this, resolve, reject)

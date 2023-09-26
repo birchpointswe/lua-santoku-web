@@ -8,7 +8,7 @@ local Promise = js.Promise
 
 if os.getenv("SANITIZE") ~= "0" then
   print("Skipping async tests when sanitizer is active.")
-  print("Re-run with SANITIZER=0 to run async tests")
+  print("Re-run with SANITIZE=0 to run async tests")
   return
 end
 
@@ -72,7 +72,7 @@ test("async code", function ()
 
   test("promise js exception", function ()
     Promise:new(function ()
-      js.eval(nil, "throw 'test'")
+      global:eval("throw 'test'")
     end):await(function (_, ok, err)
       assert.equals(false, ok)
       assert.equals("test", err)
@@ -111,5 +111,22 @@ test("async code", function ()
       assert.equals("failed", unhandled)
     end, 100)
   end)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 end)

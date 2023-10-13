@@ -310,4 +310,33 @@ test("val", function ()
     assert.equals("ABC", val.bytes("ABC"):str())
   end)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 end)

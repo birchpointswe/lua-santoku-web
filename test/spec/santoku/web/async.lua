@@ -69,7 +69,6 @@ test("async code", function ()
     end)
   end)
 
-
   test("promise js exception", function ()
     Promise:new(function ()
       global:eval("throw 'test'")
@@ -112,21 +111,21 @@ test("async code", function ()
     end, 100)
   end)
 
+  test("js error in js invoked callback", function ()
+    local unhandled = nil
+    js.process:on("unhandledRejection", function () end)
+    js.process:on("uncaughtException", function (_, err)
+      print("> uncaught", err)
+      unhandled = err
+    end)
+    global:setTimeout(function ()
+
+      error("hi")
+    end)
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
+  end)
 
 end)

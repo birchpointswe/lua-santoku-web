@@ -6,6 +6,8 @@ local vec = require("santoku.vector")
 local val = require("santoku.web.val")
 local js = require("santoku.web.js")
 
+collectgarbage("stop")
+
 test("js", function ()
 
 
@@ -58,3 +60,18 @@ test("js", function ()
   end)
 
 end)
+
+collectgarbage("collect")
+collectgarbage("collect")
+
+local cnt = 0
+for k, v in pairs(val.IDX_TBL_VAL) do
+
+  cnt = cnt + 1
+end
+
+
+
+
+assert.equals(1, cnt, "IDX_TBL_VAL not clean")
+assert.equals(1, val.IDX_VAL_REF.size, "IDX_VAL_REF not clean")

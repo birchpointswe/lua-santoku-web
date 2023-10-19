@@ -896,10 +896,17 @@ int mt_global (lua_State *L) {
   return 1;
 }
 
+
+
+
+
+
+
 int mt_bytes (lua_State *L) {
   size_t size;
   const char *str = luaL_checklstring(L, -1, &size);
-  push_val(L, val(typed_memory_view(size, (uint8_t *) str)), -1);
+  val v = val(typed_memory_view(size, (uint8_t *) str));
+  push_val(L, v.call<val>("slice"), -1);
   val_to_lua(L, -1, false, true);
   return 1;
 }

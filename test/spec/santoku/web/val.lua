@@ -9,7 +9,13 @@ test("val", function ()
 
   test("global", function ()
 
-    test("returns a global object", function ()
+    test("returns a global object (simple)", function ()
+      local c0 = val.global("console")
+      local v0 = c0:lua()
+      assert.equals("object", v0:typeof())
+    end)
+
+    test("returns a global object (duplicated)", function ()
       local c0 = val.global("console")
       local v0 = c0:lua()
       local c1 = val.global("console")
@@ -87,17 +93,17 @@ test("val", function ()
     test("array proxy get adds 1 to numeric keys", function ()
       local source = { 1, 2, 3, 4 }
       local a = val(source)
-      assert(1, a:get(0))
-      assert(2, a:get(1))
-      assert(3, a:get(2))
-      assert(4, a:get(3))
+      assert.equals(1, a:get(0):lua())
+      assert.equals(2, a:get(1):lua())
+      assert.equals(3, a:get(2):lua())
+      assert.equals(4, a:get(3):lua())
     end)
 
     test("array proxy set adds 1 to numeric keys", function ()
       local source = {}
       local a = val(source)
       a:set(0, 1)
-      assert(1, a[1])
+      assert.equals(1, a:lua()[1])
     end)
 
   end)
@@ -130,7 +136,7 @@ test("val", function ()
 
   test("JSON.stringify nested :lua()", function ()
     local JSON = val.global("JSON"):lua()
-    local r = JSON.stringify(JSON, { a = { b = 1 } })
+    local r = JSON:stringify({ a = { b = 1 } })
     assert.equals("{\"a\":{\"b\":1}}", r)
   end)
 
@@ -245,7 +251,7 @@ test("val", function ()
 
     local obj = val.global("Object"):call(nil)
 
-    obj:set("square", function (this, n)
+    obj:set("square", function (this, n, ...)
 
 
 
@@ -281,9 +287,11 @@ test("val", function ()
 
   test("array vals", function ()
     local t = { 1, 2, 3, 4, 5 }
-    local Object = val.global("Object"):lua()
+    local Object = val.global("Object")
     local vi = 1
-    Object:values(t):forEach(function (_, v)
+
+
+    Object:get("values"):call(nil, t):lua():forEach(function (_, v)
       assert.equals(vi, v)
       vi = vi + 1
     end)
@@ -323,16 +331,18 @@ test("val", function ()
 end)
 
 collectgarbage("collect")
-collectgarbage("collect")
+val.global("gc"):call(nil)
 
-local cnt = 0
-for k, v in pairs(val.IDX_TBL_VAL) do
+val.global("setTimeout", function ()
 
-  cnt = cnt + 1
-end
+  local cntt = 0
+  for k, v in pairs(val.IDX_REF_TBL) do
+
+    cntt = cntt + 1
+  end
 
 
 
+  assert.equals(0, cntt, "IDX_REF_TBL not clean")
 
-assert.equals(1, cnt, "IDX_TBL_VAL not clean")
-assert.equals(1, val.IDX_VAL_REF.size, "IDX_VAL_REF not clean")
+end, 5000)

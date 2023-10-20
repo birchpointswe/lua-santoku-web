@@ -608,6 +608,7 @@ void table_to_val (lua_State *L, int i, bool recurse) {
 
   } else {
 
+    lua_pushvalue(L, i_tbl);
     val obj = val::object();
 
     lua_pushnil(L);

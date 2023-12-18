@@ -44,12 +44,9 @@ val.global("gc"):call(nil)
 val.global("setTimeout", function ()
 
   local cntt = 0
-  for k, v in pairs(val.IDX_REF_TBL) do
-
+  for _ in pairs(val.IDX_REF_TBL) do
     cntt = cntt + 1
   end
-
-
 
   assert.equals(0, cntt, "IDX_REF_TBL not clean")
 

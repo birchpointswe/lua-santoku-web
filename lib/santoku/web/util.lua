@@ -150,12 +150,12 @@ M.clear = function (el)
 end
 
 
-M.throttle = function (fn, time)
+M.throttle = function ()
   error("throttle: unimplemented")
 end
 
 
-M.debounce = function (fn, time)
+M.debounce = function ()
   error("throttle: unimplemented")
 end
 

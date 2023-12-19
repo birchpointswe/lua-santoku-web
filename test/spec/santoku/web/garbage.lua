@@ -46,7 +46,13 @@ val.global("setTimeout"):call(nil, function ()
   val.global("setTimeout"):call(nil, function ()
 
 
-    assert.equals(2, val.IDX_REF_TBL_N)
+    assert(val.IDX_REF_TBL.n == 2, "IDX_REF_TBL.n ~= 2")
+
+
+
+
+
+
 
     if os.getenv("TK_WEB_PROFILE") == "1" then
       require("santoku.profile")()

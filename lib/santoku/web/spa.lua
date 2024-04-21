@@ -8,7 +8,6 @@ local it = require("santoku.iter")
 local arr = require("santoku.array")
 local num = require("santoku.num")
 local util = require("santoku.web.util")
-
 local defaults = require("santoku.web.spa.defaults")
 
 local function run (opts)

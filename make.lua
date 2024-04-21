@@ -1,7 +1,7 @@
 local env = {
 
   name = "santoku-web",
-  version = "0.0.89-1",
+  version = "0.0.90-1",
   variable_prefix = "TK_WEB",
   license = "MIT",
   public = true,
@@ -15,16 +15,19 @@ local env = {
 
 
 
-  cxxflags = "--std=c++17",
-  ldflags = "--bind",
+  cxxflags = { "--std=c++17" },
+  ldflags = { "--bind"  },
 
   test = {
-    ldflags = "--bind",
+    cflags = { "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE='$stringToNewUTF8'" },
+    ldflags = { "--bind" },
     dependencies = {
 
       "luacov >= 0.15.0-1",
-    }
+    },
+
   },
+
 
 }
 

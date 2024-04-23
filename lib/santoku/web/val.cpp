@@ -518,8 +518,13 @@ void object_to_lua (lua_State *L, val v, int iv, bool recurse) {
       return Emval.toValue($0) instanceof Array
         ? 1 : 0;
     }), v.as_handle());
-    lua_newtable(L);
+
+
+
+
+
     if (isArray) {
+      lua_newtable(L);
       long m = v["length"].as<long>();
       for (long i = 0; i < m; i ++) {
         lua_pushinteger(L, i + 1);
@@ -528,19 +533,22 @@ void object_to_lua (lua_State *L, val v, int iv, bool recurse) {
         lua_remove(L, -2);
         lua_settable(L, -3);
       }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     } else {
-      val ks = val::global("Object").call<val>("keys", v);
-      long m = ks["length"].as<long>();
-      for (long i = 0; i < m; i ++) {
-        val k = ks[i];
-        push_val(L, k, INT_MIN);
-        val_to_lua(L, -1, true, false);
-        push_val(L, v[k], INT_MIN);
-        val_to_lua(L, -1, true, false);
-        lua_remove(L, -2);
-        lua_remove(L, -3);
-        lua_settable(L, -3);
-      }
+      lua_pushvalue(L, iv);
     }
   }
 }

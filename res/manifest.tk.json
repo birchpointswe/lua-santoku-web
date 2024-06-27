@@ -5,8 +5,8 @@
   "scope": "/",
   "display": "standalone",
 
-  <% -- TODO: This is not fully standardized and
-     -- will need to be revisited %>
+  <%
+%>
   "handle_links": "not-preferred",
   "launch_handler": { "route_to": "existing-client-retain" },
 

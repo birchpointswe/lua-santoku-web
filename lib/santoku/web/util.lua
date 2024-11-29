@@ -185,9 +185,9 @@ M.ws = function (url, opts, each, retries, backoffs)
       ws:send(val.bytes(data))
     end
   end, function ()
-    if ws then
 
-      finalized = true
+    finalized = true
+    if ws then
       ws:close()
       ws = nil
     end

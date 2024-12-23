@@ -22,7 +22,7 @@ local M = {}
 local reqs = setmetatable({}, { __mode = "k" })
 
 
-M.request = function (url, opts, done, retries, backoffs, retry_until)
+M.request = function (url, opts, done, retries, backoffs, retry_until, raw)
   if url and reqs[url] then
     return url
   end

@@ -596,7 +596,7 @@ M.populate = function (el, data, root, els)
 
           if fn then
             el:addEventListener(ev, function (_, ev)
-              return fn(ev)
+              return fn(ev, el)
             end)
           end
         elseif attr.name == "tk-text" then

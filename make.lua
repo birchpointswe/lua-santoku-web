@@ -1,16 +1,15 @@
 local env = {
 
   name = "santoku-web",
-  version = "0.0.245-1",
+  version = "0.0.246-1",
   variable_prefix = "TK_WEB",
   license = "MIT",
   public = true,
 
   dependencies = {
     "lua >= 5.1",
-    "santoku >= 0.0.219-1",
+    "santoku >= 0.0.220-1",
     "santoku-sqlite >= 0.0.17-1",
-    "santoku-fs >= 0.0.32-1",
     "santoku-fs >= 0.0.32-1",
     "lua-cjson == 2.1.0.10-1"
   },

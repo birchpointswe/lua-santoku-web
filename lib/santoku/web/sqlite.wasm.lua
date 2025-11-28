@@ -4,8 +4,6 @@
 
 
 
-
-
 local js = require("santoku.web.js")
 local sqlite = require("santoku.sqlite")
 local err = require("santoku.error")
@@ -62,12 +60,6 @@ M.open_opfs = function (dbfile, callback)
                 local ok, e = err.pcall(function ()
                   Object:keys(t):forEach(function (_, k)
                     local v = t[k]
-
-
-
-
-
-
 
 
 

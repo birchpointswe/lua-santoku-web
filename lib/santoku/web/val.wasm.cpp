@@ -71,7 +71,7 @@ static inline bool mtx_to_mtv (lua_State *, int);
 static inline int lua_to_val (lua_State *, int, bool);
 static inline void val_to_lua (lua_State *, int, bool, bool);
 static inline int val_ref (lua_State *, int);
-static inline bool val_get_ref (lua_State *, int);
+static inline bool val_unref (lua_State *, int);
 
 static inline int mtv_call (lua_State *);
 static inline int mtv_instanceof (lua_State *);
@@ -394,7 +394,7 @@ static inline int val_ref (lua_State *L, int it) {
   return ref;
 }
 
-static inline bool val_get_ref (lua_State *L, int ref) {
+static inline bool val_unref (lua_State *L, int ref) {
   lua_rawgeti(L, LUA_REGISTRYINDEX, IDX_REF_TBL);
   lua_pushinteger(L, ref);
   lua_gettable(L, -2);
@@ -785,9 +785,9 @@ static inline int lua_to_val (lua_State *L, int i, bool recurse) {
 static inline int j_arg (int Lp, int i) {
   lua_State *L = (lua_State *) Lp;
   lua_to_val(L, i, false);
-
-
-  return (int) peek_val(L, -1).as_handle();
+  EM_VAL v = peek_val(L, -1).as_handle();
+  lua_pop(L, 1);
+  return (int) v;
 }
 
 static inline int j_args (int Lp, int arg0, int argc) {
@@ -816,9 +816,8 @@ static inline int j_args (int Lp, int arg0, int argc) {
 static inline void j_own_keys (int Lp, int it, int keysp) {
 
   lua_State *L = (lua_State *) Lp;
-  int top = lua_gettop(L);
 
-  assert(val_get_ref(L, it));
+  assert(val_unref(L, it));
   bool isarray = tk_web_isarray(L, -1);
   lua_pop(L, 1);
 
@@ -828,7 +827,7 @@ static inline void j_own_keys (int Lp, int it, int keysp) {
       keys.push("length");
     }), keysp);
 
-  assert(val_get_ref(L, it));
+  assert(val_unref(L, it));
   lua_pushnil(L);
   while (lua_next(L, -2) != 0) {
     lua_to_val(L, -2, false);
@@ -844,15 +843,13 @@ static inline void j_own_keys (int Lp, int it, int keysp) {
     lua_pop(L, 2);
   }
 
-  lua_settop(L, top);
 }
 
 static inline int j_get (int Lp, int i, int k, int is_str) {
 
   lua_State *L = (lua_State *) Lp;
-  int top = lua_gettop(L);
 
-  assert(val_get_ref(L, i));
+  assert(val_unref(L, i));
 
   if (is_str) {
     char *kk = (char *) k;
@@ -867,10 +864,9 @@ static inline int j_get (int Lp, int i, int k, int is_str) {
 
   lua_gettable(L, -2);
   lua_to_val(L, -1, false);
-  EM_VAL handle = peek_val(L, -1).as_handle();
+  val vv = peek_val(L, -1);
 
-  lua_settop(L, top);
-  return (int) handle;
+  return (int) vv.as_handle();
 }
 
 static inline void j_set (int Lp, int i, int k, int v) {
@@ -881,7 +877,7 @@ static inline void j_set (int Lp, int i, int k, int v) {
   push_val(L, vv, INT_MIN);
   val_to_lua(L, -2, false);
   val_to_lua(L, -2, false);
-  assert(val_get_ref(L, i));
+  assert(val_unref(L, i));
   lua_insert(L, -3);
   lua_settable(L, -3);
   lua_pop(L, 3);
@@ -890,15 +886,14 @@ static inline void j_set (int Lp, int i, int k, int v) {
 static inline int j_call (int Lp, int i, int argsp) {
 
   lua_State *L = (lua_State *) Lp;
-  int top = lua_gettop(L);
 
-  assert(val_get_ref(L, i));
+  assert(val_unref(L, i));
 
   val args = val::take_ownership((EM_VAL) argsp);
   int argc = args["length"].as<int>();
 
-  for (int j = 0; j < argc; j ++) {
-    push_val(L, args[val(j)], INT_MIN);
+  for (int i = 0; i < argc; i ++) {
+    push_val(L, args[val(i)], INT_MIN);
     val_to_lua(L, -1, false);
     lua_remove(L, -2);
   }
@@ -909,26 +904,23 @@ static inline int j_call (int Lp, int i, int argsp) {
   if (rc != 0) {
 
     lua_to_val(L, -1, false);
-    EM_VAL handle = peek_val(L, -1).as_handle();
+    val v = peek_val(L, -1);
     EM_ASM_PTR(({
       var v = Emval.toValue($0);
       throw v;
-    }), handle);
+    }), v.as_handle());
 
-    lua_settop(L, top);
     return 0;
 
   } else if (lua_gettop(L) > t) {
 
     args_to_vals(L, lua_gettop(L) - t);
-    EM_VAL handle = peek_val(L, -1).as_handle();
+    val v = peek_val(L, -1);
 
-    lua_settop(L, top);
-    return (int) handle;
+    return (int) v.as_handle();
 
   } else {
 
-    lua_settop(L, top);
     return (int) val::undefined().as_handle();
 
   }
@@ -945,7 +937,7 @@ static inline void j_error (int Lp, int ep) {
 
 static inline int j_len (int Lp, int i) {
   lua_State *L = (lua_State *) Lp;
-  assert(val_get_ref(L, i));
+  assert(val_unref(L, i));
   lua_Integer len = lua_objlen(L, -1);
   lua_pop(L, 1);
   return len;
@@ -953,26 +945,20 @@ static inline int j_len (int Lp, int i) {
 
 static inline int j_tostring (int Lp, int i) {
   lua_State *L = (lua_State *) Lp;
-  int top = lua_gettop(L);
   lua_getglobal(L, "tostring");
-  assert(val_get_ref(L, i));
+  assert(val_unref(L, i));
   lua_call(L, 1, 1);
   const char *str = lua_tostring(L, -1);
   lua_pop(L, 1);
   push_val(L, val(str), INT_MIN);
-  EM_VAL handle = peek_val(L, -1).as_handle();
-  lua_settop(L, top);
-  return (int) handle;
+  return (int) peek_val(L, -1).as_handle();
 }
 
 static inline int j_valueof (int Lp, int i) {
   lua_State *L = (lua_State *) Lp;
-  int top = lua_gettop(L);
-  assert(val_get_ref(L, i));
+  assert(val_unref(L, i));
   lua_to_val(L, -1, true);
-  EM_VAL handle = peek_val(L, -1).as_handle();
-  lua_settop(L, top);
-  return (int) handle;
+  return (int) peek_val(L, -1).as_handle();
 }
 
 static inline void j_val_ref_delete (int Lp, int ref) {
@@ -1114,40 +1100,25 @@ static inline int mtp_await (lua_State *L) {
   args_to_vals(L, -1);
   val v = peek_val(L, -2);
   val f = peek_val(L, -1);
-
-
-  int fref = val_ref(L, -1);
-
   EM_ASM(({
-    var L = $0;
-    var fref = $1;
-    var v = Emval.toValue($2);
-    var f = Emval.toValue($3);
-    var cleanup = () => { Module["val_ref_delete"](L, fref); };
+    var v = Emval.toValue($1);
+    var f = Emval.toValue($2);
     v.then((...args) => {
       args.unshift(true);
-      try {
-        var r = f(...args);
-        cleanup();
-        return r;
-      } catch (e) {
-        cleanup();
-        throw e;
-      }
+      var r = f(...args);
+      return r;
     }).catch((...args) => {
       try {
         args.unshift(false);
         var r = f(...args);
-        cleanup();
         return r;
       } catch (e) {
-        cleanup();
         return setTimeout(() => {
           throw e;
         });
       }
     });
-  }), L, fref, v.as_handle(), f.as_handle());
+  }), L, v.as_handle(), f.as_handle());
   return 0;
 }
 

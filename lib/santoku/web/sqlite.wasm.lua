@@ -1,9 +1,3 @@
-
-
-
-
-
-
 local js = require("santoku.web.js")
 local val = require("santoku.web.val")
 local sqlite = require("santoku.sqlite")
@@ -61,17 +55,12 @@ M.open_opfs = function (dbfile, callback)
                 local ok, e = err.pcall(function ()
                   Object:keys(t):forEach(function (_, k)
                     local v = t[k]
-
-
-
-
                     stmt:bind(":" .. k, cast_param(v))
                   end)
                 end)
                 if ok then
                   return OK
                 else
-
                   err.error(e)
                   return ERROR
                 end
@@ -86,7 +75,6 @@ M.open_opfs = function (dbfile, callback)
                 if ok then
                   return OK
                 else
-
                   err.error(e)
                   return ERROR
                 end

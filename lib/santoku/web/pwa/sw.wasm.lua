@@ -11,7 +11,6 @@ local Module = global.Module
 local caches = js.caches
 local clients = js.clients
 local Promise = js.Promise
-local MessageChannel = js.MessageChannel
 local URL = js.URL
 local Response = js.Response
 local Math = js.Math
@@ -20,6 +19,7 @@ local defaults = {
   cache_fetch_retry_backoff_ms = 1000,
   cache_fetch_retry_backoff_multiply = 2,
   cache_fetch_retry_times = 3,
+  db_call_timeout_ms = 100,
 }
 
 local function random_string ()
@@ -30,13 +30,98 @@ return function (opts)
 
   opts = tbl.merge({}, defaults, opts or {})
 
-
   local db_provider_client_id = nil
   local db_provider_port = nil
   local db_registered_clients = {}
   local db_sw_port = nil
   local db_sw_callbacks = {}
+  local db_pending_queue = {}
 
+
+  local trigger_failover
+
+  local function flush_queue ()
+    if not db_sw_port then
+      return
+    end
+    local queue = db_pending_queue
+    db_pending_queue = {}
+    for i = 1, #queue do
+      local req = queue[i]
+      local nonce = random_string()
+      db_sw_callbacks[nonce] = req.callback
+      db_sw_port:postMessage(val({
+        nonce = nonce,
+        method = req.method,
+        args = req.args
+      }, true))
+    end
+  end
+
+  local function db_call (method, args, callback)
+
+    if not db_sw_port then
+      db_pending_queue[#db_pending_queue + 1] = {
+        method = method,
+        args = args,
+        callback = callback
+      }
+      return
+    end
+
+    local nonce = random_string()
+    local completed = false
+
+    db_sw_callbacks[nonce] = function (ok, result)
+      if completed then return end
+      completed = true
+      return callback(ok, result)
+    end
+
+
+    db_sw_port:postMessage(val({
+      nonce = nonce,
+      method = method,
+      args = args
+    }, true))
+
+
+    global:setTimeout(function ()
+      if completed then return end
+
+      clients:get(db_provider_client_id):await(function (_, ok, client)
+        if completed then return end
+
+        if not ok or not client then
+
+          db_sw_callbacks[nonce] = nil
+          completed = true
+
+
+          if db_sw_port then
+
+            local new_nonce = random_string()
+            db_sw_callbacks[new_nonce] = callback
+            db_sw_port:postMessage(val({
+              nonce = new_nonce,
+              method = method,
+              args = args
+            }, true))
+          else
+
+            db_pending_queue[#db_pending_queue + 1] = {
+              method = method,
+              args = args,
+              callback = callback
+            }
+
+            trigger_failover()
+          end
+        end
+
+      end)
+    end, opts.db_call_timeout_ms)
+  end
 
   local db = nil
   if opts.sqlite then
@@ -49,22 +134,11 @@ return function (opts)
           for i = 1, n - 1 do
             args[i] = select(i, ...)
           end
-
-          if not db_sw_port then
-            return callback(false, "No db provider available")
-          end
-          local nonce = random_string()
-          db_sw_callbacks[nonce] = callback
-          return db_sw_port:postMessage(val({
-            nonce = nonce,
-            method = method,
-            args = args
-          }, true))
+          return db_call(method, args, callback)
         end
       end
     })
   end
-
 
   if type(opts.routes) == "function" then
     opts.routes = opts.routes(db)
@@ -171,16 +245,13 @@ return function (opts)
     end)
   end
 
-
   local function match_route (pathname)
     if not opts.routes then
       return nil
     end
-
     if opts.routes[pathname] then
       return opts.routes[pathname], {}
     end
-
     for pattern, handler in pairs(opts.routes) do
       local params = {}
       local regex = "^" .. pattern:gsub(":([^/]+)", function (name)
@@ -199,14 +270,12 @@ return function (opts)
     return nil
   end
 
-
   local function create_response (body, content_type)
     content_type = content_type or "text/html"
     return Response:new(body, {
       headers = { ["Content-Type"] = content_type }
     })
   end
-
 
   local function create_error_response (message, status)
     status = status or 500
@@ -219,7 +288,6 @@ return function (opts)
   Module.on_fetch = function (_, request, client_id)
     local url = URL:new(request.url)
     local pathname = url.pathname
-
 
     local handler, params = match_route(pathname)
     if handler then
@@ -234,20 +302,16 @@ return function (opts)
       end)
     end
 
-
     if opts.on_fetch then
       return opts.on_fetch(request, client_id, default_fetch_handler)
     end
     return default_fetch_handler(request)
   end
 
-
   local function setup_sw_port_to_provider ()
     if not db_provider_port then
       return
     end
-
-
     local original_handler = db_provider_port.onmessage
     db_provider_port.onmessage = function (_, ev)
       if ev.ports and ev.ports[0] then
@@ -265,11 +329,11 @@ return function (opts)
           end
         end
         db_sw_port:start()
-      end
 
+        flush_queue()
+      end
       db_provider_port.onmessage = original_handler
     end
-
     db_provider_port:postMessage("sw")
   end
 
@@ -277,7 +341,6 @@ return function (opts)
     if not db_provider_port then
       return
     end
-
     local original_handler = db_provider_port.onmessage
     db_provider_port.onmessage = function (_, ev)
       if ev.ports and ev.ports[0] then
@@ -297,9 +360,7 @@ return function (opts)
     db_provider_client_id = client_id
     db_provider_port = port
     db_provider_port:start()
-
     setup_sw_port_to_provider()
-
     for cid, _ in pairs(db_registered_clients) do
       if cid ~= client_id then
         connect_client_to_provider(cid)
@@ -307,27 +368,41 @@ return function (opts)
     end
   end
 
-  local function check_provider_alive ()
-    if not db_provider_client_id then
+  local failover_in_progress = false
+
+  trigger_failover = function ()
+
+    if failover_in_progress then return end
+
+    if db_sw_port then return end
+
+    failover_in_progress = true
+
+
+    db_provider_client_id = nil
+    db_provider_port = nil
+    db_sw_port = nil
+
+
+    local cid, port = next(db_registered_clients)
+    if not cid then
+
+      failover_in_progress = false
       return
     end
-    clients:get(db_provider_client_id):await(function (_, ok, client)
-      if not ok or not client then
 
-        db_provider_client_id = nil
-        db_provider_port = nil
-        db_sw_port = nil
-        for cid, port in pairs(db_registered_clients) do
-          if cid ~= db_provider_client_id then
-            promote_provider(cid, port)
-            clients:get(cid):await(function (_, ok, c)
-              if ok and c then
-                c:postMessage(val({ type = "db_provider" }, true))
-              end
-            end)
-            return
-          end
-        end
+
+    clients:get(cid):await(function (_, ok, client)
+      failover_in_progress = false
+
+      if db_sw_port then return end
+      if ok and client then
+        promote_provider(cid, port)
+        client:postMessage(val({ type = "db_provider" }, true))
+      else
+
+        db_registered_clients[cid] = nil
+        trigger_failover()
       end
     end)
   end
@@ -340,11 +415,9 @@ return function (opts)
       end
 
       if data.type == "db_register" and ev.ports and ev.ports[0] then
-
         local port = ev.ports[0]
         db_registered_clients[client_id] = port
         if not db_provider_client_id then
-
           promote_provider(client_id, port)
           clients:get(client_id):await(function (_, ok, client)
             if ok and client then
@@ -352,16 +425,14 @@ return function (opts)
             end
           end)
         else
-
           connect_client_to_provider(client_id)
         end
       elseif data.type == "db_unregister" then
         db_registered_clients[client_id] = nil
         if client_id == db_provider_client_id then
-          check_provider_alive()
+          trigger_failover()
         end
       end
-
 
       if opts.on_message then
         return opts.on_message(ev)

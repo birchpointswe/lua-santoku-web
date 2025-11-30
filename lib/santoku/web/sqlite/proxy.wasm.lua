@@ -6,28 +6,18 @@ local wrpc = require("santoku.web.worker.rpc.client")
 
 local navigator = js.navigator
 local MessageChannel = js.MessageChannel
-local Math = js.Math
-
-local function random_string ()
-  return tostring(Math:random()):gsub("0%%.", "")
-end
-
 
 local function create_provider_port (target, async)
   local ch = MessageChannel:new()
   local port1, port2 = ch.port1, ch.port2
-
-  port1.onmessage = function (_, ev)
-
+  port1.onmessage = function (_, _)
     local client_ch = MessageChannel:new()
     local client_port1, client_port2 = client_ch.port1, client_ch.port2
-
     client_port1.onmessage = function (_, msg_ev)
       local data = msg_ev.data
       local nonce = data.nonce
       local method = data.method
       local args = data.args or {}
-
       local function send_response (ok, result)
         local response = { nonce = nonce }
         if ok then
@@ -40,11 +30,9 @@ local function create_provider_port (target, async)
         end
         return client_port1:postMessage(val(response, true))
       end
-
       if not target[method] then
         return send_response(false, "Unknown method: " .. tostring(method))
       end
-
       if async then
         local call_args = {}
         for i = 0, (args.length or 0) - 1 do
@@ -66,50 +54,31 @@ local function create_provider_port (target, async)
         return send_response(ok, result)
       end
     end
-
     client_port1:start()
-
     port1:postMessage(nil, { client_port2 })
   end
-
   port1:start()
   return port2
 end
 
 return function (bundle_path, callback)
-
   local db = wrpc.init(bundle_path)
-
-
   local provider_port = create_provider_port(db, true)
-
-
   navigator.serviceWorker.ready:await(function (_, ok)
     if not ok then
       return
     end
-
-
     navigator.serviceWorker:addEventListener("message", function (_, ev)
       if ev.data and ev.data.type == "db_provider" then
-
         if callback then
           return callback()
         end
       elseif ev.data and ev.data.type == "db_consumer" and ev.ports and ev.ports[0] then
-
-
-
         if callback then
           return callback()
         end
       end
     end)
-
-
-    navigator.serviceWorker.controller:postMessage(
-      val({ type = "db_register" }, true),
-      { provider_port }
-    )
+    navigator.serviceWorker.controller:postMessage(val({ type = "db_register" }, true), { provider_port })
   end)
 end

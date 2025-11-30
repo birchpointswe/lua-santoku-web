@@ -59,7 +59,6 @@ return function (opts)
 
   local function db_call (method, args, callback)
     if not db_sw_port then
-
       db_pending_queue[#db_pending_queue + 1] = {
         method = method,
         args = args,
@@ -337,7 +336,6 @@ return function (opts)
     }, function ()
       return Promise:new(function (resolve)
         if db_provider_client_id == client_id then
-
           db_sw_port = nil
           db_provider_port = nil
           db_provider_client_id = nil
@@ -354,7 +352,6 @@ return function (opts)
     db_provider_port = port
     db_provider_port:start()
     setup_sw_port_to_provider()
-
     for cid, _ in pairs(db_registered_clients) do
       if cid ~= client_id then
         connect_client_to_provider(cid)
@@ -417,7 +414,6 @@ return function (opts)
           trigger_failover()
         end
       elseif data.type == "lock_acquired" then
-
         if client_id == db_provider_client_id then
           monitor_provider_lock(client_id)
         end

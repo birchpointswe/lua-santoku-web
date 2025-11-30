@@ -70,13 +70,11 @@ return function (bundle_path, callback)
     if not client_id then return end
     provider_lock_held = true
     if not navigator or not navigator.locks then
-
       navigator.serviceWorker.controller:postMessage(val({ type = "lock_acquired" }, true))
       return
     end
     local lock_name = "db_provider_" .. client_id
     navigator.locks:request(lock_name, function ()
-
       navigator.serviceWorker.controller:postMessage(val({ type = "lock_acquired" }, true))
       return js.Promise:new(function () end)
     end):catch(function () end)
@@ -102,7 +100,6 @@ return function (bundle_path, callback)
         end
       end
     end)
-
     if navigator.serviceWorker.controller then
       register_with_sw()
     else

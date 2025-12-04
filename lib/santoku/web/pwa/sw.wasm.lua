@@ -467,7 +467,6 @@ return function (opts)
     if not cid then
       failover_in_progress = false
 
-      fail_pending_requests("No database provider available")
       return
     end
 

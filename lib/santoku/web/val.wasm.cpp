@@ -157,10 +157,10 @@ static inline void args_to_vals (lua_State *L, int n) {
 static inline val *peek_valp (lua_State *L, int i) {
   if (!mtx_to_mtv(L, i))
     return NULL;
-  assert(tk_web_get_ephemeron(L, -1, 1) == LUA_TLIGHTUSERDATA);
-  val *vp = (val *) lua_touserdata(L, -1);
-  lua_pop(L, 2);
-  return vp;
+
+  val **vpp = (val **) lua_touserdata(L, -1);
+  lua_pop(L, 1);
+  return vpp ? *vpp : NULL;
 }
 
 static inline val peek_val (lua_State *L, int i) {
@@ -319,12 +319,12 @@ static inline void push_val (lua_State *L, val v, int uv) {
   else
     lua_pushvalue(L, uv);
 
-  lua_newuserdata(L, 0);
+
+  val **vpp = (val **) lua_newuserdata(L, sizeof(val*));
+  *vpp = new val(v);
+
   lua_insert(L, -2);
   tk_web_set_ephemeron(L, -2, 2);
-
-  lua_pushlightuserdata(L, new val(v));
-  tk_web_set_ephemeron(L, -2, 1);
 
   luaL_getmetatable(L, MTV);
   lua_setmetatable(L, -2);

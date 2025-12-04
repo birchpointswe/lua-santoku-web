@@ -160,11 +160,14 @@ return function (bundle_path, callback)
     end
     navigator.serviceWorker:addEventListener("message", function (_, ev)
       if ev.data and ev.data.type == "db_provider" then
-        if not is_provider and not db then
+
+
+        if not is_provider then
           become_provider(ev.data.client_id)
         end
       elseif ev.data and ev.data.type == "db_consumer" then
         local consumer_port = ev.ports and ev.ports[1]
+
         if consumer_port and not db then
           become_consumer(consumer_port)
         end

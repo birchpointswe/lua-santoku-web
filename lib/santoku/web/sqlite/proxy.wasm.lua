@@ -1,4 +1,5 @@
 local js = require("santoku.web.js")
+local util = require("santoku.web.util")
 local val = require("santoku.web.val")
 local arr = require("santoku.array")
 local err = require("santoku.error")
@@ -77,7 +78,7 @@ return function (bundle_path, callback)
         done(nil)
       end)
 
-      return js.Promise:resolve()
+      return util.promise(function (complete) complete(true) end)
     end)
   end
 
@@ -122,7 +123,7 @@ return function (bundle_path, callback)
     }, true))
 
 
-    js.setTimeout(function ()
+    util.set_timeout(function ()
       if counter == provider_counter and not db and not is_provider then
         navigator.serviceWorker:removeEventListener("message", on_sw_message)
         request_provider_port(counter)
@@ -199,7 +200,7 @@ return function (bundle_path, callback)
 
 
       navigator.locks:request(client_id, function ()
-        return js.Promise:new(function () end)
+        return util.promise(function () end)
       end):catch(function () end)
 
 
@@ -241,7 +242,7 @@ return function (bundle_path, callback)
         if callback then callback() end
 
 
-        return js.Promise:new(function () end)
+        return util.promise(function () end)
       end)
 
 

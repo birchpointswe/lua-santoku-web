@@ -96,6 +96,7 @@ return function (bundle_path, callback)
     if counter ~= provider_counter then return end
     if is_provider then return end
     if db then return end
+    if not client_id then return end
 
     local nonce = "req_" .. tostring(math.random()):sub(3)
 
@@ -172,7 +173,8 @@ return function (bundle_path, callback)
 
     if data.type == "provider" then
 
-      if not is_provider then
+
+      if not is_provider and client_id then
         close_provider_connection()
         provider_counter = provider_counter + 1
         request_provider_port(provider_counter)
@@ -180,10 +182,13 @@ return function (bundle_path, callback)
 
     elseif data.type == "request" and is_provider and data.clientId then
 
+      local controller = navigator.serviceWorker.controller
+      if not controller then return end
+
       local port = create_rpc_port()
 
 
-      navigator.serviceWorker.controller:postMessage(
+      controller:postMessage(
         val({ type = "db_port", targetClientId = data.clientId, nonce = data.nonce }, true),
         { port }
       )
@@ -196,6 +201,10 @@ return function (bundle_path, callback)
 
 
     get_client_id(function (cid)
+      if not cid then
+
+        return
+      end
       client_id = cid
 
 
@@ -225,8 +234,10 @@ return function (bundle_path, callback)
 
         navigator.serviceWorker:addEventListener("message", function (_, ev)
           if ev.data and ev.data.type == "sw_port_request" and is_provider then
+            local controller = navigator.serviceWorker.controller
+            if not controller then return end
             local port = create_rpc_port()
-            navigator.serviceWorker.controller:postMessage(
+            controller:postMessage(
               val({ type = "sw_port" }, true),
               { port }
             )

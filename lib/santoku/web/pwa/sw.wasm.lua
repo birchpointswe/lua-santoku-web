@@ -32,7 +32,6 @@ return function (opts)
 
   opts = tbl.merge({}, defaults, opts or {})
 
-
   local page_ready = false
   local page_ready_callbacks = {}
 
@@ -62,7 +61,6 @@ return function (opts)
 
     page_ready_callbacks[#page_ready_callbacks + 1] = call_once
 
-
     if opts.page_ready_timeout_ms then
       util.set_timeout(function ()
         if opts.verbose and not page_ready then
@@ -73,13 +71,12 @@ return function (opts)
     end
   end
 
-
-
   local db_sw_port = nil
   local db_sw_callbacks = {}
   local db_pending_queue = {}
   local db_provider_client_id = nil
   local db_port_request_pending = false
+  local db_provider_debounce_timer = nil
   local pending_consumer_ports = {}
 
   local function flush_queue ()
@@ -91,7 +88,6 @@ return function (opts)
     for i = 1, #queue do
       local req = queue[i]
       local nonce = random_string()
-
       db_sw_callbacks[nonce] = req
       db_sw_port:postMessage(val({
         nonce = nonce,
@@ -112,7 +108,6 @@ return function (opts)
     end
 
     local nonce = random_string()
-
 
     db_sw_callbacks[nonce] = {
       method = method,
@@ -143,7 +138,6 @@ return function (opts)
       end
     })
 
-
     local broadcast_channel = BroadcastChannel:new("sqlite_shared_service")
     if opts.verbose then
       print("[SW] Created BroadcastChannel for sqlite_shared_service")
@@ -162,7 +156,6 @@ return function (opts)
         print("[SW] Broadcasting sw_port_request on BroadcastChannel")
       end
 
-
       broadcast_channel:postMessage(val({
         type = "sw_port_request"
       }, true))
@@ -174,20 +167,43 @@ return function (opts)
         print("[SW] Received broadcast:", data and data.type, "clientId:", data and data.clientId)
       end
       if data and data.type == "provider" and data.clientId then
-
-
-        if db_sw_port then
+        if data.clientId == db_provider_client_id and db_sw_port then
           if opts.verbose then
-            print("[SW] Ignoring provider announcement - already have working port")
+            print("[SW] Ignoring duplicate provider announcement")
           end
           return
         end
         if opts.verbose then
-          print("[SW] New provider announced:", data.clientId)
+          print("[SW] New provider announced:", data.clientId, "- debouncing")
         end
         db_provider_client_id = data.clientId
-        db_port_request_pending = false
-        request_sw_port()
+        if db_provider_debounce_timer then
+          util.clear_timeout(db_provider_debounce_timer)
+        end
+        db_provider_debounce_timer = util.set_timeout(function ()
+          db_provider_debounce_timer = nil
+          if opts.verbose then
+            print("[SW] Processing provider change after debounce:", db_provider_client_id)
+          end
+          if db_sw_port then
+            if opts.verbose then
+              local count = 0
+              for _ in pairs(db_sw_callbacks) do count = count + 1 end
+              print("[SW] Closing old db_sw_port, re-queuing callbacks:", count)
+            end
+            for nonce, req in pairs(db_sw_callbacks) do
+              if opts.verbose then
+                print("[SW] Re-queuing callback:", nonce)
+              end
+              db_pending_queue[#db_pending_queue + 1] = req
+            end
+            db_sw_callbacks = {}
+            db_sw_port:close()
+            db_sw_port = nil
+          end
+          db_port_request_pending = false
+          request_sw_port()
+        end, 200)
       end
     end
   end
@@ -205,16 +221,12 @@ return function (opts)
     if opts.verbose then
       print("Installing service worker")
     end
-
     local is_update = global.registration.active ~= nil
     return util.promise(function (complete)
       return async.pipe(function (done)
         if is_update then
-
           return done(true)
         end
-
-
         return wait_for_page_ready(function ()
           return done(true)
         end)
@@ -314,7 +326,6 @@ return function (opts)
           return done(true, resp:clone())
         end
       end, function (done, resp)
-
         if was_miss and cache_ref and resp and resp.ok then
           cache_ref:put(request, resp:clone()):await(function ()
             return done(true, resp)
@@ -364,7 +375,6 @@ return function (opts)
     local url = URL:new(request.url)
     local pathname = url.pathname
 
-
     if opts.index_html and (pathname == "/" or pathname == "/index.html") then
       return util.promise(function (complete)
         local headers = Headers:new()
@@ -399,16 +409,13 @@ return function (opts)
       return
     end
 
-
     if data.type == "skip_waiting" then
       return global:skipWaiting()
     end
 
-
     if data.type == "page_resources_loaded" then
       return on_page_resources_loaded()
     end
-
 
     if data.type == "store_port" and data.nonce then
       if opts.verbose then
@@ -417,8 +424,7 @@ return function (opts)
       local port = ev.ports and ev.ports[1]
       if port then
         pending_consumer_ports[data.nonce] = port
-
-        util.set_timeout(function ()
+          util.set_timeout(function ()
           if pending_consumer_ports[data.nonce] then
             if opts.verbose then
               print("[SW] Cleaning up unclaimed port for nonce:", data.nonce)
@@ -430,7 +436,6 @@ return function (opts)
       end
       return
     end
-
 
     if data.type == "get_port" and data.nonce then
       if opts.verbose then
@@ -453,7 +458,6 @@ return function (opts)
       end
       return
     end
-
 
     if opts.sqlite and data.type == "sw_port" then
       if opts.verbose then

@@ -10,7 +10,6 @@ local document = js.document
 local MessageChannel = js.MessageChannel
 local BroadcastChannel = js.BroadcastChannel
 
-
 local function create_consumer_client (port)
   local callbacks = {}
   local nonce_counter = 0
@@ -66,7 +65,6 @@ return function (bundle_path, callback, opts)
     print("[proxy] Initializing sqlite proxy")
   end
 
-
   local function get_client_id (done)
     local nonce = "client_id_" .. tostring(math.random()):sub(3)
     if verbose then
@@ -82,8 +80,7 @@ return function (bundle_path, callback, opts)
           if verbose then
             print("[proxy] Held locks count:", held.length)
           end
-
-          for i = 1, held.length do
+              for i = 1, held.length do
             local lock = held[i]
             if verbose then
               print("[proxy] Checking lock", i, "name:", lock and lock.name, "clientId:", lock and lock.clientId)
@@ -102,11 +99,9 @@ return function (bundle_path, callback, opts)
         end
         done(nil)
       end)
-
       return util.promise(function (complete) complete(true) end)
     end)
   end
-
 
   local function close_provider_connection ()
     if current_provider_port then
@@ -116,7 +111,6 @@ return function (bundle_path, callback, opts)
     db = nil
   end
 
-
   local function request_provider_port (counter)
     if verbose then
       print("[proxy] request_provider_port called, counter:", counter, "provider_counter:", provider_counter, "is_provider:", is_provider, "db:", db)
@@ -124,7 +118,6 @@ return function (bundle_path, callback, opts)
     if counter ~= provider_counter then return end
     if is_provider then return end
     if db then return end
-
     if not navigator.serviceWorker.controller then
       if verbose then
         print("[proxy] No SW controller yet, will retry")
@@ -139,7 +132,6 @@ return function (bundle_path, callback, opts)
     if verbose then
       print("[proxy] Requesting provider port with nonce:", nonce)
     end
-
 
     local function on_sw_message (_, ev)
       if verbose then
@@ -168,7 +160,6 @@ return function (bundle_path, callback, opts)
     end
     navigator.serviceWorker:addEventListener("message", on_sw_message)
 
-
     if verbose then
       print("[proxy] Broadcasting request to provider")
     end
@@ -176,8 +167,6 @@ return function (bundle_path, callback, opts)
       type = "request",
       nonce = nonce
     }, true))
-
-
 
     util.set_timeout(function ()
       if counter == provider_counter and not db and not is_provider then
@@ -194,7 +183,6 @@ return function (bundle_path, callback, opts)
       end
     end, 100)
 
-
     util.set_timeout(function ()
       if counter == provider_counter and not db and not is_provider then
         if verbose then
@@ -206,7 +194,6 @@ return function (bundle_path, callback, opts)
     end, 2000)
   end
 
-
   local function create_rpc_port ()
     local ch = MessageChannel:new()
     local port1, port2 = ch.port1, ch.port2
@@ -214,13 +201,10 @@ return function (bundle_path, callback, opts)
     port1.onmessage = function (_, msg_ev)
       local msg_data = msg_ev.data
       if msg_data and msg_data.method and msg_data.nonce then
-
         local args = {}
         local js_args = msg_data.args
         if js_args and js_args.length then
-          for i = 1, js_args.length do
-            args[i] = js_args[i]
-          end
+          for i = 1, js_args.length do args[i] = js_args[i] end
         end
         args[#args + 1] = function (ok, result)
           local response = { nonce = msg_data.nonce }
@@ -247,7 +231,6 @@ return function (bundle_path, callback, opts)
     return port2
   end
 
-
   broadcast_channel.onmessage = function (_, ev)
     local data = ev.data
     if verbose then
@@ -256,8 +239,6 @@ return function (bundle_path, callback, opts)
     if not data then return end
 
     if data.type == "provider" then
-
-
       if verbose then
         print("[proxy] Provider announced, is_provider:", is_provider, "client_id:", client_id)
       end
@@ -271,7 +252,6 @@ return function (bundle_path, callback, opts)
       end
 
     elseif data.type == "request" and is_provider and data.nonce then
-
       if verbose then
         print("[proxy] Consumer requesting port, nonce:", data.nonce)
       end
@@ -288,14 +268,12 @@ return function (bundle_path, callback, opts)
         print("[proxy] Storing port in SW for consumer to fetch, nonce:", data.nonce)
       end
 
-
       controller:postMessage(
         val({ type = "store_port", nonce = data.nonce }, true),
         { port }
       )
 
     elseif data.type == "sw_port_request" and is_provider then
-
       if verbose then
         print("[proxy] SW requesting port via broadcast")
       end
@@ -317,7 +295,6 @@ return function (bundle_path, callback, opts)
     end
   end
 
-
   if verbose then
     print("[proxy] Waiting for SW ready...")
   end
@@ -327,20 +304,17 @@ return function (bundle_path, callback, opts)
     end
     if not ok then return end
 
-
     get_client_id(function (cid)
       if verbose then
         print("[proxy] Got client ID:", cid)
       end
       if not cid then
-
         if verbose then
           print("[proxy] No client ID, cannot proceed")
         end
         return
       end
       client_id = cid
-
 
       if verbose then
         print("[proxy] Acquiring context lock for client:", client_id)
@@ -352,13 +326,10 @@ return function (bundle_path, callback, opts)
         return util.promise(function () end)
       end):catch(function () end)
 
-
-
       if verbose then
         print("[proxy] Requesting sqlite_db_access lock...")
       end
       navigator.locks:request("sqlite_db_access", function ()
-
         if verbose then
           print("[proxy] Acquired sqlite_db_access lock - becoming provider!")
         end
@@ -383,7 +354,6 @@ return function (bundle_path, callback, opts)
           end
         end
 
-
         if verbose then
           print("[proxy] Announcing as provider, clientId:", client_id)
         end
@@ -399,11 +369,8 @@ return function (bundle_path, callback, opts)
           callback()
         end
 
-
         return util.promise(function () end)
       end)
-
-
 
       if verbose then
         print("[proxy] Also trying to connect as consumer...")

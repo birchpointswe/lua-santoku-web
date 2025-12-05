@@ -161,23 +161,25 @@ return function (opts)
           return
         end
         if opts.verbose then
-          print("[SW] New provider announced:", data.clientId, "- debouncing")
+          print("[SW] New provider announced:", data.clientId)
         end
         db_provider_client_id = data.clientId
+
+        if db_sw_port then
+          if opts.verbose then
+            print("[SW] Closing old db_sw_port immediately")
+          end
+          db_sw_port:close()
+          db_sw_port = nil
+        end
+
         if db_provider_debounce_timer then
           util.clear_timeout(db_provider_debounce_timer)
         end
         db_provider_debounce_timer = util.set_timeout(function ()
           db_provider_debounce_timer = nil
           if opts.verbose then
-            print("[SW] Processing provider change after debounce:", db_provider_client_id)
-          end
-          if db_sw_port then
-            if opts.verbose then
-              print("[SW] Closing old db_sw_port")
-            end
-            db_sw_port:close()
-            db_sw_port = nil
+            print("[SW] Requesting port after debounce:", db_provider_client_id)
           end
           db_port_request_pending = false
           request_sw_port()

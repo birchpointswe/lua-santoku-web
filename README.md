@@ -1,158 +1,133 @@
-# Santoku Web
+# santoku-web
 
-Santoku Web is a Lua library extending
-[Santoku](https://github.com/birchpointswe/lua-santoku) with web development
-capabilities for WebAssembly environments.
+Lua for the browser: a Lua-to-JavaScript marshaling layer plus the web pieces built on
+top of it (DOM, async/promises, fetch, WebSocket, web workers via RPC, OPFS SQLite, PWA
+scaffolding). The code is compiled to WebAssembly with Emscripten and runs inside the
+browser (or node, for the test harness). Built on base `santoku`, `santoku-mustache`,
+`santoku-http`, `santoku-lpeg`, and `lua-cjson`.
 
-## Module Reference
+This README is a usage guide, not an API reference. The tests are the spec: each module
+points at the test that exercises its surface. Read those for the exhaustive list; read
+this (and [`doc/usage.md`](doc/usage.md)) for how the layers fit together. For the
+dependencies' own surface (string/table/error helpers, mustache rendering, the `http`
+client, lpeg grammars), see their repositories; this doc does not re-document them.
 
-### `santoku.web.js`
-Direct access to JavaScript global objects through a proxy interface.
+## Three usage modes
 
-### `santoku.web.val`
-Core bidirectional Lua-JavaScript value conversion and object marshaling.
+santoku-web spans three distinct runtimes. A file's suffix tells you which one it belongs
+to:
 
-| Function | Arguments | Returns | Description |
-|----------|-----------|---------|-------------|
-| `val` | `lua_value, [recurse]` | `js_value` | Converts Lua value to JavaScript |
-| `val.global` | `name` | `js_object` | Gets JavaScript global by name |
-| `val.bytes` | `string` | `uint8array` | Converts Lua string to JavaScript Uint8Array |
-| `val.class` | `config_fn, [parent_class]` | `js_class` | Creates JavaScript class |
-| `val.lua` | `js_value, [recurse]` | `lua_value` | Converts JavaScript value to Lua |
+- `*.wasm.lua` / `*.wasm.c`: WASM/browser runtime. Compiled into the Emscripten module and
+  run in the browser. The val/js/dom/async core and all the browser integrations live
+  here.
+- `*.tk.lua`: build-time toku template. Evaluated by the `toku` build harness (the `<% %>`
+  blocks run at build time, reading sibling `res/` assets and minifying JS). Some emit a
+  static artifact (an HTML page, a manifest, a web component definition); two of them
+  (`dom.wasm.tk.lua`, `async.wasm.tk.lua`) carry both suffixes because they are build-time
+  templates that emit a WASM-runtime module (the template inlines a `res/web/*.js` payload,
+  the rest is ordinary runtime Lua).
+- plain `.lua`: shared/native. No WASM gating, usable in a normal native Lua process
+  (server-side version negotiation, the trace formatter shared by the browser tracers).
 
-JavaScript objects accessed through val provide:
+## Conventions
 
-| Method | Arguments | Returns | Description |
-|--------|-----------|---------|-------------|
-| `:lua` | `[recurse]` | `lua_value` | Convert to Lua value |
-| `:val` | `-` | `js_value` | Get underlying val object |
-| `:typeof` | `-` | `string` | Get JavaScript type |
-| `:instanceof` | `constructor` | `boolean` | Test instanceof relationship |
-| `:call` | `this, ...args` | `result` | Call as function |
-| `:new` | `...args` | `instance` | Call as constructor |
+- **val is the boundary.** Every JavaScript value reaching Lua is a userdata wrapping a
+  numeric handle into a JS-side handle table; every Lua value reaching JS is converted or
+  proxied. `require("santoku.web.val")` is the one module that defines this; everything
+  else is built on it.
+- **Wrapped vs unwrapped.** A `val` userdata exposes the explicit method API (`:get`,
+  `:set`, `:call`, `:new`, `:typeof`, `:instanceof`, `:lua`). Calling `:lua()` (or
+  `require("santoku.web.js").<Name>`) gives you the same JS object behind a metatable that
+  forwards index/newindex/call straight to JS, so you write `el.textContent`,
+  `obj:method(a, b)`, `arr[1]`. The two views address the same underlying handle.
+- **Recurse flag.** Conversion takes an optional `recurse` boolean. Without it, objects and
+  arrays stay live JS proxies (one handle, mutations visible both ways). With it, they are
+  deep-copied into plain Lua tables or plain JS objects/arrays.
+- **Array index shift.** A JS array read or written through the Lua side is 1-indexed from
+  Lua and 0-indexed from JS; the proxy adds or subtracts 1 so each side sees its own
+  convention. Covered in `test/spec/santoku/web/uint8array.wasm.lua`.
+- **GC across the boundary.** Lua values handed to JS are held by a registry ref and
+  released by a JS `FinalizationRegistry`; JS values held by Lua are released on userdata
+  `__gc`. The reference count is observable as `val.IDX_REF_TBL.n`, which the tests assert
+  returns to baseline after collection.
 
-Promise objects additionally provide:
+## Module map
 
-| Method | Arguments | Returns | Description |
-|--------|-----------|---------|-------------|
-| `:await` | `callback` | `-` | Attach promise resolution handler |
+### WASM / browser runtime
 
-JavaScript arrays provide:
+| Module | Role | Anchor test |
+|--------|------|-------------|
+| `santoku.web.val` (C) | Lua-to-JS marshaling core: wrap/convert, get/set/call/new, class, bytes, the value metatables | `val.wasm.lua`, `class.wasm.lua`, `tostring.wasm.lua` |
+| `santoku.web.js` | global accessor: `js.<Name>` is `val.global("<Name>"):lua()` | `js.wasm.lua` |
+| `santoku.web.dom` | batched DOM writes/reads over a binary command buffer (`dom.buf` C), plus event `listen` | `dom.wasm.lua` |
+| `santoku.web.async` | coroutine-based `async`/`await` over JS promises | `async.wasm.lua`, `await.wasm.lua` |
+| `santoku.web.history` | hash-route history with distance-pruned marks | not test-anchored |
+| `santoku.web.socket` | `fetch`/`request` wrappers returning normalized responses | not test-anchored |
+| `santoku.web.util` | timers, throttle/debounce, `ws`, promise helpers, `component`, localStorage, fetch `Response` building | not test-anchored |
+| `santoku.web.rpc` (C) | MessagePort RPC: `call` (client), `server` (worker handler), port setup | not test-anchored |
+| `santoku.web.sqlite` | OPFS SAH-pool SQLite, returns a `santoku.sqlite` db | not test-anchored |
+| `santoku.web.sqlite.worker` | worker-side SQLite RPC server | not test-anchored |
+| `santoku.web.sqlite.proxy` | main-thread client proxy to the SQLite worker | not test-anchored |
+| `santoku.web.pwa.sw` | service-worker factory (precache, fetch routing) | not test-anchored |
+| `santoku.web.trace.index` | main-thread log/trace forwarding over BroadcastChannel/WebSocket | not test-anchored |
+| `santoku.web.trace.sw` | service-worker trace forwarding | not test-anchored |
 
-| Method | Arguments | Returns | Description |
-|--------|-----------|---------|-------------|
-| `:str` | `-` | `string` | Convert Uint8Array to Lua string |
+### Build-time toku templates (`.tk.lua`)
 
-### `santoku.web.util`
-Web utilities for HTTP requests, WebSocket connections, DOM manipulation, and templating.
+| Template | Emits | Mode |
+|----------|-------|------|
+| `santoku.web.component` | a custom-element JS definition from an HTML component file (lpeg-split into style/body/init/destroy) | build-time |
+| `santoku.web.pwa.index` | the app's index HTML (mustache, optional lpeg transforms) | build-time |
+| `santoku.web.pwa.manifest` | the PWA `manifest.json` (mustache) | build-time |
+| `santoku.web.pwa.wrap_events` | a minified event-wrapping JS payload | build-time |
+| `santoku.web.dom` | the `dom` runtime module (inlines `res/web/dom.js`) | build-time -> runtime |
+| `santoku.web.async` | the `async` runtime module (inlines `res/web/async.js`) | build-time -> runtime |
 
-| Function | Arguments | Returns | Description |
-|----------|-----------|---------|-------------|
-| `request` | `url/opts, [done], [retry], [raw]` | `request_object` | Creates HTTP request |
-| `get` | `url/opts, [done], [retry], [raw]` | `cancel_function` | Makes GET request |
-| `post` | `url/opts, [done], [retry], [raw]` | `cancel_function` | Makes POST request |
-| `http_client` | `-` | `client_object` | Creates HTTP client with events |
-| `ws` | `url, [opts], each, [retries], [backoffs]` | `send_fn, close_fn` | Creates WebSocket connection |
-| `clone` | `template, [data], [parent], [before], [pre_append]` | `element, [elements]` | Clones and populates template |
-| `clone_all` | `options` | `cancel_fn, events` | Clones multiple templates asynchronously |
-| `populate` | `element, data, [root], [elements]` | `element, elements, data` | Populates element with data |
-| `template` | `content` | `template_element` | Creates template element |
-| `static` | `html_string` | `page_object` | Creates static page object |
-| `component` | `[tag], callback` | `class` | Creates custom web component |
-| `promise` | `executor_fn` | `promise` | Creates JavaScript promise |
-| `after_frame` | `callback` | `id` | Executes after next animation frame |
-| `throttle` | `function, time_ms` | `function` | Creates throttled function |
-| `debounce` | `function, time_ms` | `function` | Creates debounced function |
-| `fit_image` | `img_element, container, [ratio]` | `-` | Fits image to container |
-| `parse_path` | `url, [path], [params], [modal_sep]` | `path_object` | Parses URL path and query |
-| `encode_path` | `path_object, [params], [modal_sep]` | `string` | Encodes path object to URL |
-| `set_local` | `key, value` | `-` | Sets localStorage item |
-| `get_local` | `key` | `string/nil` | Gets localStorage item |
-| `utc_date` | `seconds` | `date_object` | Creates Date from UTC seconds |
-| `date_utc` | `date_object` | `number` | Converts Date to UTC seconds |
+### Shared / native (plain `.lua`)
 
-Template attributes for `populate`:
+| Module | Role |
+|--------|------|
+| `santoku.web.version` | client/server version negotiation (nginx-side check, browser-side header injection and mismatch hooks) |
+| `santoku.web.trace.common` | the log formatter shared by `trace.index` and `trace.sw` |
 
-| Attribute | Description |
-|-----------|-------------|
-| `tk-text="property"` | Sets element text content |
-| `tk-html="property"` | Sets element innerHTML |
-| `tk-href="property"` | Sets href attribute |
-| `tk-value="property"` | Sets input value |
-| `tk-src="property"` | Sets src attribute |
-| `tk-checked="property"` | Sets checked state |
-| `tk-id="path"` | Adds element to elements object at path |
-| `tk-on:event="handler"` | Attaches event listener |
-| `tk-repeat="array_property"` | Repeats element for array items |
-| `tk-show:property[=value]` | Shows element if condition met |
-| `tk-hide:property[=value]` | Hides element if condition met |
-| `tk-shadow="mode"` | Attaches shadow DOM |
+## Canonical snippet
 
-### `santoku.web.spa`
-Single-page application framework with routing, navigation, modals, and UI components.
+```lua
+local val = require("santoku.web.val")
+local js = require("santoku.web.js")
 
-| Function | Arguments | Returns | Description |
-|----------|-----------|---------|-------------|
-| `spa` | `options` | `spa_object` | Creates SPA instance |
+-- explicit val API: build a JS object, call a method, read the result
+local obj = val.global("Object"):call(nil)   -- {}
+obj:set("a", 1)
+local one = obj:get("a")                       -- a val wrapping the number
+assert(one:typeof():lua() == "number")
+assert(one:lua() == 1)
 
-SPA object methods:
+-- unwrapped view: js.<Name> forwards straight to JavaScript
+local json = js.JSON:stringify({ a = { b = 1 } })   -- "{\"a\":{\"b\":1}}"
 
-| Method | Arguments | Returns | Description |
-|--------|-----------|---------|-------------|
-| `setup_ripple` | `element` | `-` | Adds material ripple effect |
-| `add_page` | `name, page_object` | `-` | Registers page component |
-| `add_modal` | `name, modal_object` | `-` | Registers modal component |
-| `navigate` | `path, [replace], [force]` | `-` | Navigates to path |
-| `back` | `-` | `-` | Navigates back |
-| `show_modal` | `name, [data]` | `-` | Shows modal |
-| `hide_modal` | `-` | `-` | Hides current modal |
+-- a Lua function passed to JS is callable from JS; its return crosses back as a JS value
+obj:set("square", function (_, n) return n * n end)
+assert(obj:get("square"):call(obj, 20):lua() == 400)
+```
 
-Page/modal objects provide lifecycle hooks:
-- `init(view, data)` - Called when page/modal loads
-- `show(view, data)` - Called when page/modal becomes visible
-- `hide(view, data)` - Called when page/modal becomes hidden
-- `destroy(view, data)` - Called when page/modal unloads
+Worked examples (val marshaling, calling JS, building DOM, awaiting promises, defining a
+class and a component) live in [`doc/usage.md`](doc/usage.md).
 
-Configuration options include theming (`theme_color`, `background_color`), layout (`header_height`, `nav_width`), and behavior settings (`modal_separator`, `transition_time`, screen breakpoints).
+## Building and testing
 
-### `santoku.web.sqlite`
-SQLite database operations in the browser using OPFS.
+This repo uses the `toku` build harness. The C extensions (`val`, `dom/buf`, `rpc`) and the
+`.wasm.lua` modules are compiled to WebAssembly with Emscripten. The tests under
+`test/spec/santoku/web/` are all `*.wasm.lua`: they run in the WASM test harness (Emscripten
+under node, driven by toku), not the normal Lua interpreter, because they require a live
+JavaScript runtime (a `globalThis`, `Promise`, `setTimeout`, a `document` for the DOM test).
+Run them through `toku` so the natives are built and the harness is in place. The 11 tests
+cover the val/js/dom/async core (val, js, dom, async, await, class, memory, tostring,
+uint8array, garbage, garbage-async); the browser integrations above marked "not
+test-anchored" are exercised in downstream applications, not here.
 
-| Function | Arguments | Returns | Description |
-|----------|-----------|---------|-------------|
-| `open_opfs` | `dbfile, callback` | `-` | Opens SQLite database via OPFS |
-
-The callback receives `(ok, db_or_error)` where `db` is a database object compatible with the [santoku.sqlite](https://github.com/birchpointswe/lua-santoku-sqlite) interface.
-
-Note: SQLite functionality requires building SQLite for WASM and providing the Emscripten flag `--pre-js /path/to/sqlite/ext/wasm/jswasm/sqlite3.js`. Additionally, `sqlite3.wasm` and `sqlite3-opfs-async-proxy.js` must be hosted alongside your compiled script.
-
-### `santoku.web.worker.rpc.client`
-Client-side RPC communication with web workers.
-
-| Function | Arguments | Returns | Description |
-|----------|-----------|---------|-------------|
-| `init` | `worker_script_path` | `rpc_client, worker` | Creates RPC client and worker |
-| `create_port` | `worker` | `message_port` | Creates communication port |
-| `register_port` | `worker, port` | `-` | Registers port with worker |
-| `init_port` | `port` | `rpc_client` | Creates RPC client from port |
-
-The RPC client is a proxy object where any property access returns a function that makes an RPC call to the worker.
-
-### `santoku.web.worker.rpc.server`
-Server-side RPC handling within web workers.
-
-| Function | Arguments | Returns | Description |
-|----------|-----------|---------|-------------|
-| `init` | `handler_object, on_message` | `message_handler` | Creates RPC server |
-
-Handler objects provide synchronous methods (returning results directly) and asynchronous methods (under the `async` key, with callback as last argument).
-
-### `santoku.web.trace`
-Debugging and logging utilities for web applications.
-
-- `santoku.web.trace.common` - Common tracing functionality
-- `santoku.web.trace.index` - Main thread tracing
-- `santoku.web.trace.sw` - Service worker tracing
+Several modules pull in JS payloads from a sibling `res/` tree at build time (`res/web/*.js`,
+`res/pwa/*`). Those assets are part of the build inputs, not the documented Lua surface.
 
 ## License
 

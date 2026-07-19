@@ -1,4 +1,3 @@
-<% build = require("santoku.make.build") %>
 local co_factory = require("santoku.co")
 local js = require("santoku.web.js")
 local val = require("santoku.web.val")
@@ -9,9 +8,7 @@ local queue = {}
 local resolvers = {}
 local current_ctx = nil
 
-local globalThis = val.global("globalThis")
-
-globalThis.__luaAsyncDrain = function ()
+local function drain_queue ()
   while #queue > 0 do
     local item = table.remove(queue, 1)
     local ctx, ok, res = item[1], item[2], item[3]
@@ -35,9 +32,21 @@ globalThis.__luaAsyncDrain = function ()
   end
 end
 
-val.global("eval"):call(nil, [==[<% return build.minify_js(readfile("res/web/async.js")), false %>]==])
 
-local schedule = val.global("__luaAsyncSchedule")
+
+
+local setTimeout = val.global("setTimeout")
+local scheduled = false
+local function on_timeout ()
+  scheduled = false
+  drain_queue()
+end
+local function schedule ()
+  if not scheduled then
+    scheduled = true
+    setTimeout:call(nil, on_timeout, 0)
+  end
+end
 
 local function await (p, callback)
   if callback then
@@ -53,11 +62,11 @@ local function await (p, callback)
   p["then"]:call(p,
     function (_, res)
       queue[#queue + 1] = { ctx, true, res }
-      schedule:call(nil)
+      schedule()
     end,
     function (_, res)
       queue[#queue + 1] = { ctx, false, res }
-      schedule:call(nil)
+      schedule()
     end)
   return ctx.co.yield()
 end

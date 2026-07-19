@@ -1,7 +1,9 @@
 local co_factory = require("santoku.co")
 local js = require("santoku.web.js")
+local val = require("santoku.web.val")
 
 local Promise = js.Promise
+local globalThis = val.global("globalThis")
 
 local queue = {}
 local resolvers = {}
@@ -34,7 +36,6 @@ end
 
 
 
-local global = js.self or js.global or js.window
 local scheduled = false
 local function on_timeout ()
   scheduled = false
@@ -43,7 +44,7 @@ end
 local function schedule ()
   if not scheduled then
     scheduled = true
-    global:setTimeout(on_timeout, 0)
+    globalThis:setTimeout(on_timeout, 0)
   end
 end
 

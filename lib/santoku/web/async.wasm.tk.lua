@@ -3,13 +3,14 @@ local js = require("santoku.web.js")
 local val = require("santoku.web.val")
 
 local Promise = js.Promise
-local globalThis = val.global("globalThis")
 
 local queue = {}
 local resolvers = {}
 local current_ctx = nil
 
-local function drain_queue ()
+local globalThis = val.global("globalThis")
+
+globalThis.__luaAsyncDrain = function ()
   while #queue > 0 do
     local item = table.remove(queue, 1)
     local ctx, ok, res = item[1], item[2], item[3]
@@ -36,17 +37,10 @@ end
 
 
 
-local scheduled = false
-local function on_timeout ()
-  scheduled = false
-  drain_queue()
-end
-local function schedule ()
-  if not scheduled then
-    scheduled = true
-    globalThis:setTimeout(on_timeout, 0)
-  end
-end
+
+require("santoku.web.asyncsched")
+
+local schedule = val.global("__luaAsyncSchedule")
 
 local function await (p, callback)
   if callback then
@@ -62,11 +56,11 @@ local function await (p, callback)
   p["then"]:call(p,
     function (_, res)
       queue[#queue + 1] = { ctx, true, res }
-      schedule()
+      schedule:call(nil)
     end,
     function (_, res)
       queue[#queue + 1] = { ctx, false, res }
-      schedule()
+      schedule:call(nil)
     end)
   return ctx.co.yield()
 end

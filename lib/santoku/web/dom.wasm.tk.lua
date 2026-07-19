@@ -1,10 +1,11 @@
-<% build = require("santoku.make.build") %>
 local val = require("santoku.web.val")
 local dom = require("santoku.web.dom.buf")
 
 local g = val.global("globalThis"):lua()
 
-g:eval([==[<% return build.minify_js(readfile("res/web/dom.js")), false %>]==])
+
+
+require("santoku.web.dom.install")
 
 function dom.listen (id, event, fn, opts)
   local el

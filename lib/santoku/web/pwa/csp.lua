@@ -39,6 +39,7 @@ function M.meta (hashes, opts)
     "connect-src " .. (opts.connect or "'self'"),
     "worker-src " .. (opts.worker or "'self'"),
     "manifest-src " .. (opts.manifest or "'self'"),
+    "frame-src " .. (opts.frame or "'none'"),
     "object-src 'none'",
     "base-uri 'self'",
     "form-action " .. (opts.form or "'self'"),

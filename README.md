@@ -27,7 +27,7 @@ to:
   templates that emit a WASM-runtime module (the template inlines a `res/web/*.js` payload,
   the rest is ordinary runtime Lua).
 - plain `.lua`: shared/native. No WASM gating, usable in a normal native Lua process
-  (server-side version negotiation, the trace formatter shared by the browser tracers).
+  (e.g. server-side version negotiation).
 
 ## Conventions
 
@@ -69,8 +69,6 @@ to:
 | `santoku.web.sqlite.worker` | worker-side SQLite RPC server | not test-anchored |
 | `santoku.web.sqlite.proxy` | main-thread client proxy to the SQLite worker | not test-anchored |
 | `santoku.web.pwa.sw` | service-worker factory (precache, fetch routing) | not test-anchored |
-| `santoku.web.trace.index` | main-thread log/trace forwarding over BroadcastChannel/WebSocket | not test-anchored |
-| `santoku.web.trace.sw` | service-worker trace forwarding | not test-anchored |
 
 ### Build-time toku templates (`.tk.lua`)
 
@@ -80,15 +78,14 @@ to:
 | `santoku.web.pwa.index` | the app's index HTML (mustache, optional lpeg transforms) | build-time |
 | `santoku.web.pwa.manifest` | the PWA `manifest.json` (mustache) | build-time |
 | `santoku.web.pwa.wrap_events` | a minified event-wrapping JS payload | build-time |
-| `santoku.web.dom` | the `dom` runtime module (inlines `res/web/dom.js`) | build-time -> runtime |
-| `santoku.web.async` | the `async` runtime module (inlines `res/web/async.js`) | build-time -> runtime |
+| `santoku.web.dom` | the `dom` runtime module (installs `res/web/dom.js` via the `dom.install` EM_JS module) | build-time -> runtime |
+| `santoku.web.async` | the `async` runtime module (scheduler installed via the `asyncsched` EM_JS module) | build-time -> runtime |
 
 ### Shared / native (plain `.lua`)
 
 | Module | Role |
 |--------|------|
 | `santoku.web.version` | client/server version negotiation (nginx-side check, browser-side header injection and mismatch hooks) |
-| `santoku.web.trace.common` | the log formatter shared by `trace.index` and `trace.sw` |
 
 ## Canonical snippet
 

@@ -3,7 +3,7 @@
 Worked examples for the val/js/dom/async core, the part of the library covered by the
 WASM test suite. Each section names its anchor test under `test/spec/santoku/web/`. Read
 those for the full surface. The browser integrations (history, socket, util, rpc, sqlite,
-pwa, trace) are documented at the module level in the [README](../README.md); they have no
+pwa) are documented at the module level in the [README](../README.md); they have no
 local test anchor and are not covered here.
 
 All of these run only in the WASM/browser runtime: they need a live JavaScript engine

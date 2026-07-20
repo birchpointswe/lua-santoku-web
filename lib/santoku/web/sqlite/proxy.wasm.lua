@@ -12,39 +12,11 @@ local BroadcastChannel = js.BroadcastChannel
 local AbortController = js.AbortController
 local Worker = js.Worker
 
-
-
-
 local function init_port (port)
-  local dead = false
-  local waiters = {}
-  local function kill ()
-    if dead then return end
-    dead = true
-    local w = waiters
-    waiters = {}
-    for id in pairs(w) do w[id]() end
-  end
-  local proxy = setmetatable({}, {
+  return setmetatable({}, {
     __index = function (_, k)
       return function (...)
-        if dead then error("sqlite connection lost") end
-        local call = rpc.call(port, k, ...)
-        local id = {}
-        local settled = false
-        local raced = util.promise(function (complete)
-          local function finish (ok, v)
-            if settled then return end
-            settled = true
-            waiters[id] = nil
-            complete(ok, v)
-          end
-          waiters[id] = function () finish(false, "sqlite connection lost") end
-          call["then"]:call(call,
-            function (_, v) finish(true, v) end,
-            function (_, e) finish(false, e) end)
-        end)
-        local ok, result = raced:await()
+        local ok, result = rpc.call(port, k, ...):await()
         if not ok then error(result) end
         if type(result) ~= "userdata" then return result end
         local n = result.length
@@ -52,129 +24,83 @@ local function init_port (port)
       end
     end
   })
-  return proxy, kill
 end
 
 local function init_worker (bundle_path)
   local w = Worker:new(bundle_path)
   local ch = MessageChannel:new()
   rpc.register_port(w, ch.port2)
-  local proxy, kill = init_port(ch.port1)
-  return proxy, kill, w
+  return init_port(ch.port1), w
 end
 
 return function (bundle_path, opts)
   opts = opts or {}
   local verbose = opts.verbose
 
-  local function log (...)
-    if verbose then print("[proxy]", ...) end
-  end
-
-  local role = "none"
   local db = nil
-  local db_kill = nil
-  local worker = nil
-  local client_id = nil
-  local current_provider_port = nil
-  local provider_counter = 0
-  local lock_pending = false
-  local lock_abort = nil
-  local hold_release = nil
-  local ready_resolver = nil
-  local db_waiters = {}
-
-  local broadcast_channel = BroadcastChannel:new("sqlite_shared_service")
-
-
-  local become_provider, release_provider, drop_connection
-  local request_provider_lock, request_provider_port
-  local setup_worker_message_handler
-
-  local function signal_db ()
-    local w = db_waiters
-    db_waiters = {}
-    for i = 1, #w do w[i]() end
-  end
-
-
-
-  local function wait_for_db (ms)
-    if db then return true end
-    return util.promise(function (complete)
-      local done = false
-      local timer = util.set_timeout(function ()
-        if not done then done = true; complete(true) end
-      end, ms)
-      arr.push(db_waiters, function ()
-        if not done then done = true; util.clear_timeout(timer); complete(true) end
-      end)
-    end):await()
-  end
-
-  local function on_db_ready ()
-    signal_db()
-    if opts.on_worker_connection then opts.on_worker_connection() end
-    if ready_resolver then
-      ready_resolver()
-      ready_resolver = nil
-    end
-  end
-
+  local worker
   local core = setmetatable({}, {
     __index = function (_, k)
       return function (...)
-        if not db then
-          wait_for_db(5000)
-          if not db then error("sqlite worker not ready") end
-        end
+        if not db then error("sqlite worker not ready") end
         return db[k](...)
       end
     end
   })
+  local is_provider = false
+  local client_id = nil
+  local provider_counter = 0
+  local current_provider_port = nil
+  local ready_resolver = nil
+  local lock_abort = nil
+  local becoming_provider = false
+  local lock_release_resolver = nil
 
-  local function get_client_id ()
-    local nonce = "client_id_" .. tostring(math.random()):sub(3)
-    local found_client_id = nil
-    navigator.locks:request(nonce, function ()
-      return async(function ()
-        local ok, state = navigator.locks:query():await()
-        if ok and state and state.held then
-          local held = state.held
-          for i = 1, held.length do
-            local lock = held[i]
-            if lock and lock.name == nonce then
-              found_client_id = lock.clientId
-              break
-            end
-          end
-        end
-        return true
-      end)
-    end):await()
-    return found_client_id
-  end
-
-  local function hold_provider_lock ()
+  local function hold_lock ()
     return util.promise(function (complete)
-      hold_release = function ()
-        hold_release = nil
+      lock_release_resolver = function ()
+        lock_release_resolver = nil
         complete(true)
       end
     end)
   end
 
-  drop_connection = function ()
-    if db_kill then db_kill(); db_kill = nil end
+  local broadcast_channel = BroadcastChannel:new("sqlite_shared_service")
+
+  local function release_provider ()
+    if lock_abort then
+      lock_abort:abort()
+      lock_abort = nil
+    end
+    becoming_provider = false
+    if not is_provider then return end
+    if verbose then
+      print("[proxy] Releasing provider role (tab backgrounded)")
+    end
+    is_provider = false
+    if worker then
+      worker:terminate()
+      worker = nil
+    end
     db = nil
-    if worker then worker:terminate(); worker = nil end
-    if current_provider_port then current_provider_port:close(); current_provider_port = nil end
+    if lock_release_resolver then
+      if verbose then
+        print("[proxy] Releasing sqlite_db_access lock")
+      end
+      lock_release_resolver()
+    end
+    broadcast_channel:postMessage(val({
+      type = "provider_backgrounded",
+      clientId = client_id
+    }, true))
   end
 
-  setup_worker_message_handler = function (w, on_ready)
+  local function setup_worker_message_handler (w, on_ready)
     w.onmessage = function (_, ev)
       if ev.data and ev.data.type == "db_error" then
-        log("Worker reported db_error:", ev.data.error)
+        if verbose then
+          print("[proxy] Worker reported db_error:", ev.data.error)
+        end
         release_provider()
         if document and document.body then
           document.body.classList:add("db-error")
@@ -183,12 +109,18 @@ return function (bundle_path, opts)
           }))
         end
       elseif ev.data and ev.data.type == "worker_ready" then
-        log("Worker signaled ready")
-        if on_ready then on_ready() end
+        if verbose then
+          print("[proxy] Worker signaled ready")
+        end
+        if on_ready then
+          on_ready()
+        end
       end
     end
     w.onerror = function (_, ev)
-      log("Worker error:", ev and ev.message)
+      if verbose then
+        print("[proxy] Worker error:", ev and ev.message)
+      end
       release_provider()
       if document and document.body then
         document.body.classList:add("db-error")
@@ -199,177 +131,309 @@ return function (bundle_path, opts)
     end
   end
 
-  become_provider = function ()
-    log("Becoming provider, clientId:", client_id)
-    role = "provider"
-    provider_counter = provider_counter + 1
-    if current_provider_port then current_provider_port:close(); current_provider_port = nil end
-    if db_kill then db_kill(); db_kill = nil end
-    db, db_kill, worker = init_worker(bundle_path)
-    setup_worker_message_handler(worker, function ()
-      log("Announcing as provider")
-      broadcast_channel:postMessage(val({ type = "provider", clientId = client_id }, true))
-      on_db_ready()
-    end)
+  if verbose then
+    print("[proxy] Initializing sqlite proxy")
   end
 
-  release_provider = function ()
-    if role ~= "provider" then
-      if lock_pending and lock_abort then lock_abort:abort(); lock_pending = false end
-      return
+  local function get_client_id ()
+    local nonce = "client_id_" .. tostring(math.random()):sub(3)
+    if verbose then
+      print("[proxy] Getting client ID with nonce:", nonce)
     end
-    log("Releasing provider role")
-    role = "none"
-    drop_connection()
-    broadcast_channel:postMessage(val({ type = "provider_gone", clientId = client_id }, true))
-    if hold_release then hold_release() end
-  end
-
-  request_provider_lock = function ()
-    if role == "provider" or lock_pending then return end
-    if document.hidden then return end
-    lock_pending = true
-    lock_abort = AbortController:new()
-    log("Requesting sqlite_db_access lock...")
-    navigator.locks:request("sqlite_db_access",
-      val({ signal = lock_abort.signal }, true),
-      function ()
-        lock_pending = false
-        if document.hidden then
-          log("Lock granted while hidden -- releasing, will retry when visible")
-          return
+    local found_client_id = nil
+    navigator.locks:request(nonce, function ()
+      return async(function ()
+        local ok, state = navigator.locks:query():await()
+        if verbose then
+          print("[proxy] Lock query result - ok:", ok, "state:", state)
         end
-        become_provider()
-        return hold_provider_lock()
-      end):catch(function (_, e)
-        lock_pending = false
-        if e and e.name == "AbortError" then
-          log("Lock request aborted (tab backgrounded)")
-        else
-          log("Lock request failed:", e)
+        if ok and state and state.held then
+          local held = state.held
+          if verbose then
+            print("[proxy] Held locks count:", held.length)
+          end
+          for i = 1, held.length do
+            local lock = held[i]
+            if verbose then
+              print("[proxy] Checking lock", i, "name:", lock and lock.name, "clientId:", lock and lock.clientId)
+            end
+            if lock and lock.name == nonce then
+              if verbose then
+                print("[proxy] Found our lock, clientId:", lock.clientId)
+              end
+              found_client_id = lock.clientId
+              break
+            end
+          end
         end
+        if verbose and not found_client_id then
+          print("[proxy] Failed to find client ID")
+        end
+        return true
       end)
+    end):await()
+    return found_client_id
   end
 
-  request_provider_port = function (counter)
+  local function close_provider_connection ()
+    if current_provider_port then
+      current_provider_port:close()
+      current_provider_port = nil
+    end
+    db = nil
+  end
+
+  local function request_provider_port (counter)
+    if verbose then
+      print("[proxy] request_provider_port called, counter:", counter, "provider_counter:", provider_counter, "is_provider:", is_provider, "db:", db)
+    end
     if counter ~= provider_counter then return end
-    if role == "provider" or db then return end
+    if is_provider then return end
+    if db then return end
     if not navigator.serviceWorker.controller then
-      log("No SW controller yet, will retry")
-      util.set_timeout(function () request_provider_port(counter) end, 500)
+      if verbose then
+        print("[proxy] No SW controller yet, will retry")
+      end
+      util.set_timeout(function ()
+        request_provider_port(counter)
+      end, 500)
       return
     end
 
     local nonce = "req_" .. tostring(math.random()):sub(3)
-    log("Requesting provider port with nonce:", nonce)
+    if verbose then
+      print("[proxy] Requesting provider port with nonce:", nonce)
+    end
 
     local function on_sw_message (_, ev)
+      if verbose then
+        print("[proxy] Received SW message:", ev.data and ev.data.type, "nonce:", ev.data and ev.data.nonce, "expected nonce:", nonce)
+      end
       if ev.data and ev.data.type == "db_port" and ev.data.nonce == nonce then
         navigator.serviceWorker:removeEventListener("message", on_sw_message)
         local port = ev.ports and ev.ports[1]
-        if port and counter == provider_counter and role ~= "provider" and not db then
-          log("Becoming consumer with port")
+        if verbose then
+          print("[proxy] Received db_port, port:", port, "counter:", counter, "provider_counter:", provider_counter, "is_provider:", is_provider)
+        end
+        if port and counter == provider_counter and not is_provider then
+          if verbose then
+            print("[proxy] Becoming consumer with port")
+          end
           current_provider_port = port
-          role = "consumer"
-          db, db_kill = init_port(port)
-          on_db_ready()
+          db = init_port(port)
+          if opts.on_worker_connection then opts.on_worker_connection() end
+          if ready_resolver then
+            ready_resolver()
+            ready_resolver = nil
+          end
         elseif port then
+          if verbose then
+            print("[proxy] Closing stale port")
+          end
           port:close()
         end
       end
     end
     navigator.serviceWorker:addEventListener("message", on_sw_message)
 
-    broadcast_channel:postMessage(val({ type = "request", nonce = nonce }, true))
+    if verbose then
+      print("[proxy] Broadcasting request to provider")
+    end
+    broadcast_channel:postMessage(val({
+      type = "request",
+      nonce = nonce
+    }, true))
 
     util.set_timeout(function ()
-      if counter == provider_counter and not db and role ~= "provider" then
+      if counter == provider_counter and not db and not is_provider then
         local controller = navigator.serviceWorker.controller
         if controller then
-          controller:postMessage(val({ type = "get_port", nonce = nonce }, true))
+          if verbose then
+            print("[proxy] Fetching port from SW with nonce:", nonce)
+          end
+          controller:postMessage(val({
+            type = "get_port",
+            nonce = nonce
+          }, true))
         end
       end
     end, 100)
 
     util.set_timeout(function ()
-      if counter == provider_counter and not db and role ~= "provider" then
-        log("Port request timeout, retrying...")
+      if counter == provider_counter and not db and not is_provider then
+        if verbose then
+          print("[proxy] Port request timeout, retrying...")
+        end
         navigator.serviceWorker:removeEventListener("message", on_sw_message)
         request_provider_port(counter)
       end
     end, 2000)
   end
 
-  local function reconnect ()
-    drop_connection()
-    role = "none"
-    provider_counter = provider_counter + 1
-    request_provider_lock()
-    request_provider_port(provider_counter)
+  local function create_worker_port ()
+    return rpc.create_port(worker)
   end
 
   broadcast_channel.onmessage = function (_, ev)
     local data = ev.data
+    if verbose then
+      print("[proxy] Received broadcast:", data and data.type, "clientId:", data and data.clientId)
+    end
     if not data then return end
-    log("Received broadcast:", data.type, "clientId:", data.clientId)
 
     if data.type == "provider" then
-      if data.clientId == client_id then return end
-      if role == "provider" then return end
-      reconnect()
+      if verbose then
+        print("[proxy] Provider announced, is_provider:", is_provider, "client_id:", client_id)
+      end
+      if is_provider and data.clientId and data.clientId ~= client_id then
+        if verbose then
+          print("[proxy] Another tab became provider, releasing our provider role")
+        end
+        release_provider()
+      elseif not is_provider and client_id then
+        if verbose then
+          print("[proxy] Reconnecting to new provider")
+        end
+        close_provider_connection()
+        provider_counter = provider_counter + 1
+        request_provider_port(provider_counter)
+      end
 
-    elseif data.type == "provider_gone" then
-      if role == "provider" then return end
-      reconnect()
-
-    elseif data.type == "request" and role == "provider" and data.nonce then
+    elseif data.type == "request" and is_provider and data.nonce then
+      if verbose then
+        print("[proxy] Consumer requesting port, nonce:", data.nonce)
+      end
       local controller = navigator.serviceWorker.controller
       if not controller then
-        log("No SW controller, cannot send port")
+        if verbose then
+          print("[proxy] No SW controller, cannot send port")
+        end
         return
       end
+
       async(function ()
-        local _, port = rpc.create_port(worker):await()
+        local _, port = create_worker_port():await()
+        if verbose then
+          print("[proxy] Storing port in SW for consumer to fetch, nonce:", data.nonce)
+        end
+
         controller:postMessage(
           val({ type = "store_port", nonce = data.nonce }, true),
-          { port })
+          { port }
+        )
       end)
+
     end
   end
 
   return core, util.promise(function (complete)
-    ready_resolver = function () complete(true) end
+    ready_resolver = function ()
+      complete(true)
+    end
 
     async(function ()
-      log("Waiting for SW ready...")
+      if verbose then
+        print("[proxy] Waiting for SW ready...")
+      end
       local ok = navigator.serviceWorker.ready:await()
+      if verbose then
+        print("[proxy] SW ready callback, ok:", ok)
+      end
       if not ok then return end
 
       local cid = get_client_id()
-      log("Got client ID:", cid)
-      if not cid then return end
+      if verbose then
+        print("[proxy] Got client ID:", cid)
+      end
+      if not cid then
+        if verbose then
+          print("[proxy] No client ID, cannot proceed")
+        end
+        return
+      end
       client_id = cid
 
-
-
+      if verbose then
+        print("[proxy] Acquiring context lock for client:", client_id)
+      end
       navigator.locks:request(client_id, function ()
-        return util.never()
+        if verbose then
+          print("[proxy] Context lock acquired")
+        end
+        return hold_lock()
       end):catch(function () end)
 
-      request_provider_lock()
-      request_provider_port(provider_counter)
+      local function try_become_provider ()
+        if verbose then
+          print("[proxy] try_become_provider called, is_provider:", is_provider, "becoming_provider:", becoming_provider, "hidden:", document.hidden)
+        end
+        if is_provider or becoming_provider then return end
+        if document.hidden then return end
+        becoming_provider = true
+        if verbose then
+          print("[proxy] Requesting sqlite_db_access lock...")
+        end
+        lock_abort = AbortController:new()
+        navigator.locks:request("sqlite_db_access", val({ signal = lock_abort.signal }, true), function ()
+          becoming_provider = false
+          if verbose then
+            print("[proxy] Acquired sqlite_db_access lock - becoming provider!")
+          end
+          is_provider = true
+
+          if verbose then
+            print("[proxy] Initializing database worker...")
+          end
+          db, worker = init_worker(bundle_path)
+          if verbose then
+            print("[proxy] Database worker initialized, db:", db, "worker:", worker)
+          end
+          setup_worker_message_handler(worker, function ()
+            if verbose then
+              print("[proxy] Announcing as provider, clientId:", client_id)
+            end
+            broadcast_channel:postMessage(val({
+              type = "provider",
+              clientId = client_id
+            }, true))
+
+            if opts.on_worker_connection then opts.on_worker_connection() end
+
+            if ready_resolver then
+              if verbose then
+                print("[proxy] Resolving ready promise")
+              end
+              ready_resolver()
+              ready_resolver = nil
+            end
+          end)
+
+          return hold_lock()
+        end):catch(function (_, e)
+          becoming_provider = false
+          if e and e.name == "AbortError" then
+            if verbose then
+              print("[proxy] Lock request aborted (tab backgrounded)")
+            end
+          else
+            if verbose then
+              print("[proxy] Lock request failed:", e)
+            end
+          end
+        end)
+      end
+
+      try_become_provider()
 
       document:addEventListener("visibilitychange", function ()
         if document.hidden then
-          if role == "provider" then
-            release_provider()
-          elseif lock_pending and lock_abort then
-            lock_abort:abort()
-            lock_pending = false
-          end
+          release_provider()
         else
-          request_provider_lock()
-          if role ~= "provider" and not db then
+          if verbose then
+            print("[proxy] Tab visible, trying to become provider or consumer")
+          end
+          try_become_provider()
+          if not is_provider and not becoming_provider then
             provider_counter = provider_counter + 1
             request_provider_port(provider_counter)
           end
@@ -380,14 +444,55 @@ return function (bundle_path, opts)
         release_provider()
       end)
 
+      if verbose then
+        print("[proxy] Also trying to connect as consumer...")
+      end
+      request_provider_port(provider_counter)
 
       local fallback_delay = 5000 + math.floor(math.random() * 5000)
+      if verbose then
+        print("[proxy] Scheduling fallback timeout with jitter:", fallback_delay, "ms")
+      end
       util.set_timeout(function ()
-        if db or role == "provider" or lock_pending then return end
-        log("Fallback: still no db, re-requesting")
-        request_provider_lock()
-        provider_counter = provider_counter + 1
-        request_provider_port(provider_counter)
+        if db or is_provider or becoming_provider then return end
+        if verbose then
+          print("[proxy] Fallback timeout: still no db, requesting lock normally")
+        end
+        becoming_provider = true
+        navigator.locks:request("sqlite_db_access", function ()
+          becoming_provider = false
+          if verbose then
+            print("[proxy] Fallback: acquired lock, becoming provider")
+          end
+          is_provider = true
+          db, worker = init_worker(bundle_path)
+          if verbose then
+            print("[proxy] Fallback: worker initialized")
+          end
+          setup_worker_message_handler(worker, function ()
+            broadcast_channel:postMessage(val({
+              type = "provider",
+              clientId = client_id
+            }, true))
+            if verbose then
+              print("[proxy] Fallback: broadcasted provider")
+            end
+            if opts.on_worker_connection then opts.on_worker_connection() end
+            if ready_resolver then
+              if verbose then
+                print("[proxy] Fallback: resolving ready promise")
+              end
+              ready_resolver()
+              ready_resolver = nil
+            end
+          end)
+          return hold_lock()
+        end):catch(function (_, e)
+          becoming_provider = false
+          if verbose then
+            print("[proxy] Fallback lock request failed:", e)
+          end
+        end)
       end, fallback_delay)
     end)
   end)

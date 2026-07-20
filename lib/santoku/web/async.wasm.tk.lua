@@ -34,12 +34,7 @@ globalThis.__luaAsyncDrain = function ()
   end
 end
 
-
-
-
-
 require("santoku.web.asyncsched")
-
 local schedule = val.global("__luaAsyncSchedule")
 
 local function await (p, callback)

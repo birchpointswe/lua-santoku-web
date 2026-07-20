@@ -5,6 +5,10 @@ local val = require("santoku.web.val")
 local async = require("santoku.web.async")
 local rpc = require("santoku.web.rpc")
 
+local function is_provider_change (e)
+  return type(e) == "string" and e:find("provider change", 1, true) ~= nil
+end
+
 local navigator = js.navigator
 local document = js.document
 local MessageChannel = js.MessageChannel
@@ -12,25 +16,11 @@ local BroadcastChannel = js.BroadcastChannel
 local AbortController = js.AbortController
 local Worker = js.Worker
 
-local function init_port (port)
-  return setmetatable({}, {
-    __index = function (_, k)
-      return function (...)
-        local ok, result = rpc.call(port, k, ...):await()
-        if not ok then error(result) end
-        if type(result) ~= "userdata" then return result end
-        local n = result.length
-        return arr.spread(val.lua(result, true), 1, n)
-      end
-    end
-  })
-end
-
 local function init_worker (bundle_path)
   local w = Worker:new(bundle_path)
   local ch = MessageChannel:new()
   rpc.register_port(w, ch.port2)
-  return init_port(ch.port1), w
+  return ch.port1, w
 end
 
 return function (bundle_path, opts)
@@ -39,11 +29,80 @@ return function (bundle_path, opts)
 
   local db = nil
   local worker
+  local db_waiters = nil
+  local invalidator = nil
+  local invalidator_reject = nil
+
+  local function arm_invalidator ()
+    invalidator = util.promise(function (complete)
+      invalidator_reject = function ()
+        invalidator_reject = nil
+        complete(false, "provider change")
+      end
+    end)
+    invalidator:catch(function () end)
+  end
+  arm_invalidator()
+
+  local function fire_invalidator ()
+    if invalidator_reject then
+      invalidator_reject()
+    end
+    arm_invalidator()
+  end
+
+  local function set_db (new_db)
+    if db ~= new_db then
+      if verbose then
+        print("[proxy] set_db change (db:", db ~= nil, "-> new:", new_db ~= nil, "), firing invalidator")
+      end
+      fire_invalidator()
+    end
+    db = new_db
+    if new_db and db_waiters then
+      local ws = db_waiters
+      db_waiters = nil
+      for i = 1, #ws do ws[i]() end
+    end
+  end
+
+  local function await_db ()
+    return util.promise(function (complete)
+      if db then
+        complete(true, db)
+        return
+      end
+      db_waiters = db_waiters or {}
+      db_waiters[#db_waiters + 1] = function () complete(true, db) end
+    end)
+  end
+
   local core = setmetatable({}, {
     __index = function (_, k)
       return function (...)
-        if not db then error("sqlite worker not ready") end
-        return db[k](...)
+        while true do
+          local port = db
+          if not port then
+            if verbose then print("[proxy] core." .. tostring(k) .. ": no db, waiting") end
+            await_db():await()
+          else
+            if verbose then print("[proxy] core." .. tostring(k) .. ": dispatching") end
+            local inv = invalidator
+            local call = rpc.call(port, k, ...)
+            local ok, result = js.Promise:race(val({ call, inv }, true)):await()
+            if ok then
+              if verbose then print("[proxy] core." .. tostring(k) .. ": ok") end
+              if type(result) ~= "userdata" then return result end
+              local n = result.length
+              return arr.spread(val.lua(result, true), 1, n)
+            end
+            if not is_provider_change(result) then
+              if verbose then print("[proxy] core." .. tostring(k) .. ": error", result) end
+              error(result)
+            end
+            if verbose then print("[proxy] core." .. tostring(k) .. ": provider change, retrying") end
+          end
+        end
       end
     end
   })
@@ -82,17 +141,13 @@ return function (bundle_path, opts)
       worker:terminate()
       worker = nil
     end
-    db = nil
+    set_db(nil)
     if lock_release_resolver then
       if verbose then
         print("[proxy] Releasing sqlite_db_access lock")
       end
       lock_release_resolver()
     end
-    broadcast_channel:postMessage(val({
-      type = "provider_backgrounded",
-      clientId = client_id
-    }, true))
   end
 
   local function setup_worker_message_handler (w, on_ready)
@@ -180,7 +235,7 @@ return function (bundle_path, opts)
       current_provider_port:close()
       current_provider_port = nil
     end
-    db = nil
+    set_db(nil)
   end
 
   local function request_provider_port (counter)
@@ -220,7 +275,7 @@ return function (bundle_path, opts)
             print("[proxy] Becoming consumer with port")
           end
           current_provider_port = port
-          db = init_port(port)
+          set_db(port)
           if opts.on_worker_connection then opts.on_worker_connection() end
           if ready_resolver then
             ready_resolver()
@@ -384,7 +439,9 @@ return function (bundle_path, opts)
           if verbose then
             print("[proxy] Initializing database worker...")
           end
-          db, worker = init_worker(bundle_path)
+          local p, w = init_worker(bundle_path)
+          worker = w
+          set_db(p)
           if verbose then
             print("[proxy] Database worker initialized, db:", db, "worker:", worker)
           end
@@ -448,52 +505,6 @@ return function (bundle_path, opts)
         print("[proxy] Also trying to connect as consumer...")
       end
       request_provider_port(provider_counter)
-
-      local fallback_delay = 5000 + math.floor(math.random() * 5000)
-      if verbose then
-        print("[proxy] Scheduling fallback timeout with jitter:", fallback_delay, "ms")
-      end
-      util.set_timeout(function ()
-        if db or is_provider or becoming_provider then return end
-        if verbose then
-          print("[proxy] Fallback timeout: still no db, requesting lock normally")
-        end
-        becoming_provider = true
-        navigator.locks:request("sqlite_db_access", function ()
-          becoming_provider = false
-          if verbose then
-            print("[proxy] Fallback: acquired lock, becoming provider")
-          end
-          is_provider = true
-          db, worker = init_worker(bundle_path)
-          if verbose then
-            print("[proxy] Fallback: worker initialized")
-          end
-          setup_worker_message_handler(worker, function ()
-            broadcast_channel:postMessage(val({
-              type = "provider",
-              clientId = client_id
-            }, true))
-            if verbose then
-              print("[proxy] Fallback: broadcasted provider")
-            end
-            if opts.on_worker_connection then opts.on_worker_connection() end
-            if ready_resolver then
-              if verbose then
-                print("[proxy] Fallback: resolving ready promise")
-              end
-              ready_resolver()
-              ready_resolver = nil
-            end
-          end)
-          return hold_lock()
-        end):catch(function (_, e)
-          becoming_provider = false
-          if verbose then
-            print("[proxy] Fallback lock request failed:", e)
-          end
-        end)
-      end, fallback_delay)
     end)
   end)
 end

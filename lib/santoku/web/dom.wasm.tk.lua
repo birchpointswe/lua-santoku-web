@@ -3,8 +3,6 @@ local dom = require("santoku.web.dom.buf")
 
 local g = val.global("globalThis"):lua()
 
-
-
 require("santoku.web.dom.install")
 
 function dom.listen (id, event, fn, opts)

@@ -3,9 +3,6 @@
 
 int luaopen_santoku_web_dom_install (lua_State *);
 
-
-
-
 EM_JS(void, tk_dom_install, (void), {
 <% return readfile("res/web/dom.js"), false %>
 });

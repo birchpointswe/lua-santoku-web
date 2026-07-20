@@ -3,12 +3,6 @@
 
 int luaopen_santoku_web_asyncsched (lua_State *);
 
-
-
-
-
-
-
 EM_JS(void, tk_asyncsched_install, (void), {
   var scheduled = false;
   function drain() {

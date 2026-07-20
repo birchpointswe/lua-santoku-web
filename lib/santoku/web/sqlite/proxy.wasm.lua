@@ -53,9 +53,6 @@ return function (bundle_path, opts)
 
   local function set_db (new_db)
     if db ~= new_db then
-      if verbose then
-        print("[proxy] set_db change (db:", db ~= nil, "-> new:", new_db ~= nil, "), firing invalidator")
-      end
       fire_invalidator()
     end
     db = new_db
@@ -83,24 +80,17 @@ return function (bundle_path, opts)
         while true do
           local port = db
           if not port then
-            if verbose then print("[proxy] core." .. tostring(k) .. ": no db, waiting") end
             await_db():await()
           else
-            if verbose then print("[proxy] core." .. tostring(k) .. ": dispatching") end
             local inv = invalidator
             local call = rpc.call(port, k, ...)
             local ok, result = js.Promise:race(val({ call, inv }, true)):await()
             if ok then
-              if verbose then print("[proxy] core." .. tostring(k) .. ": ok") end
               if type(result) ~= "userdata" then return result end
               local n = result.length
               return arr.spread(val.lua(result, true), 1, n)
             end
-            if not is_provider_change(result) then
-              if verbose then print("[proxy] core." .. tostring(k) .. ": error", result) end
-              error(result)
-            end
-            if verbose then print("[proxy] core." .. tostring(k) .. ": provider change, retrying") end
+            if not is_provider_change(result) then error(result) end
           end
         end
       end

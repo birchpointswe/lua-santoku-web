@@ -2,6 +2,30 @@
 <html lang="{{lang}}">
 <head>
   <meta charset="{{charset}}">
+  <script>
+    // One-shot SW reset. A native shell (e.g. a local-bundle APK) navigates here
+    // with #__sw_reset after an in-place update, where the old service worker's
+    // hashed wasm was deleted from the new bundle -- a cold restart of that
+    // worker 404s its own bootstrap and bricks the page. Runs before bundle.js,
+    // so it recovers even when the app can't boot. Evicts ONLY SW registrations
+    // + Cache Storage (OPFS/IndexedDB untouched), then reloads clean. Flag-gated,
+    // so ordinary loads (and the web) are unaffected.
+    (function () {
+      if (location.hash.indexOf('__sw_reset') < 0) return;
+      // Strip the flag from the URL (same-document) then force a full reload;
+      // a bare hash change would not re-fetch, leaving the page still bricked.
+      var done = function () {
+        history.replaceState(null, '', location.pathname + location.search);
+        location.reload();
+      };
+      if (!('serviceWorker' in navigator)) { done(); return; }
+      navigator.serviceWorker.getRegistrations()
+        .then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); })
+        .then(function () { return (typeof caches !== 'undefined') ? caches.keys() : []; })
+        .then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); })
+        .then(done, done);
+    })();
+  </script>
   {{#base_href}}<base href="{{base_href}}">{{/base_href}}
   {{#title}}<title>{{title}}</title>{{/title}}
   {{#title}}<meta name="apple-mobile-web-app-title" content="{{title}}">{{/title}}

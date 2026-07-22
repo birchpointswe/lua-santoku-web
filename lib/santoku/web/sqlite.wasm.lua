@@ -11,7 +11,7 @@ M.open = function (dbfile, opts)
   end
   opts = opts or {}
   local call_ok, p = pcall(function ()
-    return js.globalThis:__tk_sah_pool_init(
+    return js.globalThis:__tk_coop_init(
       opts.directory or ".opfs-sahpool",
       opts.initialCapacity or 6
     )
@@ -19,8 +19,10 @@ M.open = function (dbfile, opts)
   if not call_ok then return false, tostring(p) end
   local ok, e = p:await()
   if not ok then return false, tostring(e) end
+  local acq_ok, acq_e = js.globalThis:__tk_coop_acquire():await()
+  if not acq_ok then return false, tostring(acq_e) end
   return err.pcall(function ()
-    local db = db_mod.open_v2(dbfile, "opfs-sahpool")
+    local db = db_mod.open_v2(dbfile, "opfs-coop")
     if not db then error("sqlite open_v2 failed: " .. tostring(dbfile)) end
     return sqlite(db)
   end)

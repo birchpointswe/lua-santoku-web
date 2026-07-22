@@ -1,9 +1,8 @@
-// Service Worker event buffering for WASM/Lua
+// Worker event buffering for WASM/Lua
 // Buffers events that arrive before Lua code is ready
 
 const buffers = {
-  fetch: [], activate: [], install: [], message: [],
-  error: [], uncaught_exception: [], unhandled_rejection: []
+  message: [], error: [], uncaught_exception: [], unhandled_rejection: []
 }
 
 function push_buffer (name, item) {
@@ -15,33 +14,6 @@ function push_buffer (name, item) {
 }
 
 Module.start = function () {
-
-  if (Module.on_fetch) {
-    buffers.fetch.forEach(([ ev, resolve, reject ]) => {
-      Module.on_fetch(ev.request, ev.clientId)
-        .then(resolve)
-        .catch(reject)
-    })
-    buffers.fetch.length = 0
-  }
-
-  if (Module.on_install) {
-    buffers.install.forEach(([ ev, resolve, reject ]) => {
-      Module.on_install()
-        .then(resolve)
-        .catch(reject)
-    })
-    buffers.install.length = 0
-  }
-
-  if (Module.on_activate) {
-    buffers.activate.forEach(([ ev, resolve, reject ]) => {
-      Module.on_activate()
-        .then(resolve)
-        .catch(reject)
-    })
-    buffers.activate.length = 0
-  }
 
   if (Module.on_message) {
     buffers.message.forEach(([ ev, clientId ]) => {
@@ -72,42 +44,6 @@ Module.start = function () {
   }
 
 }
-
-self.addEventListener("fetch", ev => {
-  ev.respondWith(new Promise((resolve, reject) => {
-    if (Module.on_fetch) {
-      Module.on_fetch(ev.request, ev.clientId)
-        .then(resolve)
-        .catch(reject)
-    } else {
-      push_buffer("fetch", [ ev, resolve, reject ])
-    }
-  }))
-})
-
-self.addEventListener("install", ev => {
-  ev.waitUntil(new Promise((resolve, reject) => {
-    if (Module.on_install) {
-      Module.on_install()
-        .then(resolve)
-        .catch(reject)
-    } else {
-      push_buffer("install", [ ev, resolve, reject ])
-    }
-  }))
-})
-
-self.addEventListener("activate", ev => {
-  ev.waitUntil(new Promise((resolve, reject) => {
-    if (Module.on_activate) {
-      Module.on_activate()
-        .then(resolve)
-        .catch(reject)
-    } else {
-      push_buffer("activate", [ ev, resolve, reject ])
-    }
-  }))
-})
 
 self.addEventListener("message", ev => {
   var clientId = ev.source && ev.source.id ? ev.source.id : null

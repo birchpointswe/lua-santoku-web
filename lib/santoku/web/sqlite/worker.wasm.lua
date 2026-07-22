@@ -1,6 +1,7 @@
 local js = require("santoku.web.js")
 local val = require("santoku.web.val")
 local sqlite = require("santoku.web.sqlite")
+local coop = require("santoku.web.sqlite.coop")
 local rpc = require("santoku.web.rpc")
 local async = require("santoku.web.async")
 
@@ -17,9 +18,46 @@ return function (db_path, opts, handler)
   if verbose then print("[sqlite-worker] function called, db_path:", db_path) end
 
   local rpc_handler = nil
-  local pending_ports = {}
+  local pending = {}
+  local draining = false
+  local release_pending = false
+
+  local function end_busy ()
+    js.globalThis.__tk_coop_busy = false
+    if release_pending and #pending == 0 then
+      release_pending = false
+      js.globalThis:__tk_coop_release()
+    else
+      js.globalThis:__tk_coop_maybe_release()
+    end
+  end
+
+  local function drain ()
+    if draining or not rpc_handler then return end
+    draining = true
+    async(function ()
+      while #pending > 0 do
+        coop.acquire()
+        local ev = table.remove(pending, 1)
+        local ok, e = pcall(rpc_handler, ev)
+        if not ok then
+          print("[sqlite-worker] dispatch error: " .. tostring(e))
+        end
+        end_busy()
+      end
+      draining = false
+    end)
+  end
 
   Module.on_message = function (_, ev)
+    if ev.data and ev.data.type == "coop_release" then
+      if draining or js.globalThis.__tk_coop_busy then
+        release_pending = true
+      else
+        js.globalThis:__tk_coop_release()
+      end
+      return
+    end
     if ev.data and ev.data.REGISTER_PORT then
       if verbose then print("[sqlite-worker] REGISTER_PORT received") end
       local port = ev.data.REGISTER_PORT
@@ -32,13 +70,9 @@ return function (db_path, opts, handler)
           end
           return
         end
-        if rpc_handler then
-          if verbose then print("[sqlite-worker] port message received:", port_ev.data and port_ev.data[1]) end
-          return rpc_handler(port_ev)
-        else
-          if verbose then print("[sqlite-worker] queuing message, db not ready yet") end
-          pending_ports[#pending_ports + 1] = port_ev
-        end
+        if verbose then print("[sqlite-worker] port message received:", port_ev.data and port_ev.data[1]) end
+        pending[#pending + 1] = port_ev
+        drain()
       end)
       port:start()
       if verbose then print("[sqlite-worker] Sending port_ready through port") end
@@ -52,30 +86,31 @@ return function (db_path, opts, handler)
   async(function ()
     if verbose then print("[sqlite-worker] async block started") end
     if verbose then print("[sqlite-worker] starting sqlite.open") end
+    js.globalThis.__tk_coop_busy = true
     local ok, db = sqlite.open(db_path, opts)
     if not ok then
+      end_busy()
       print("[sqlite-worker] db_error: " .. tostring(db))
       global:postMessage(val({ type = "db_error", error = tostring(db) }, true))
       return
     end
     local handler_ok, ok2, handlers = pcall(handler, ok, db)
     if not handler_ok then
+      end_busy()
       print("[sqlite-worker] db_error: handler error: " .. tostring(ok2))
       global:postMessage(val({ type = "db_error", error = "handler error: " .. tostring(ok2) }, true))
       return
     end
     if not ok2 then
+      end_busy()
       print("[sqlite-worker] db_error: handler returned false: " .. tostring(handlers))
       global:postMessage(val({ type = "db_error", error = "handler returned false: " .. tostring(handlers) }, true))
       return
     end
     if verbose then print("[sqlite-worker] calling rpc.server") end
     rpc_handler = rpc.server(handlers)
-    if verbose then print("[sqlite-worker] processing", #pending_ports, "queued messages") end
-    for i = 1, #pending_ports do
-      rpc_handler(pending_ports[i])
-    end
-    pending_ports = {}
+    end_busy()
+    drain()
     if verbose then print("[sqlite-worker] worker fully initialized, signaling worker_ready") end
     global:postMessage(val({ type = "worker_ready" }, true))
   end)

@@ -59,17 +59,6 @@
           swReady();
         }
       }
-      function signalPageReady(worker) {
-        if (!worker) return;
-        function doSignal() {
-          worker.postMessage({ type: 'page_resources_loaded' });
-        }
-        if (document.readyState === 'complete') {
-          doSignal();
-        } else {
-          window.addEventListener('load', doSignal, { once: true });
-        }
-      }
       function handleControllerChange() {
         {{#update_redirect_delay}}
         if (document.body && document.body.classList.contains('sw-update')) {
@@ -101,7 +90,6 @@
           onReady();
           return;
         }
-        signalPageReady(reg.installing || reg.waiting);
         function waitForActive(worker) {
           if (!worker) return;
           if (worker.state === 'activated') {

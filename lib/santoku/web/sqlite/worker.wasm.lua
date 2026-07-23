@@ -20,17 +20,6 @@ return function (db_path, opts, handler)
   local rpc_handler = nil
   local pending = {}
   local draining = false
-  local release_pending = false
-
-  local function end_busy ()
-    js.globalThis.__tk_coop_busy = false
-    if release_pending and #pending == 0 then
-      release_pending = false
-      js.globalThis:__tk_coop_release()
-    else
-      js.globalThis:__tk_coop_maybe_release()
-    end
-  end
 
   local function drain ()
     if draining or not rpc_handler then return end
@@ -43,21 +32,13 @@ return function (db_path, opts, handler)
         if not ok then
           print("[sqlite-worker] dispatch error: " .. tostring(e))
         end
-        end_busy()
+        coop.release()
       end
       draining = false
     end)
   end
 
   Module.on_message = function (_, ev)
-    if ev.data and ev.data.type == "coop_release" then
-      if draining or js.globalThis.__tk_coop_busy then
-        release_pending = true
-      else
-        js.globalThis:__tk_coop_release()
-      end
-      return
-    end
     if ev.data and ev.data.REGISTER_PORT then
       if verbose then print("[sqlite-worker] REGISTER_PORT received") end
       local port = ev.data.REGISTER_PORT
@@ -89,27 +70,34 @@ return function (db_path, opts, handler)
     js.globalThis.__tk_coop_busy = true
     local ok, db = sqlite.open(db_path, opts)
     if not ok then
-      end_busy()
+      coop.release()
       print("[sqlite-worker] db_error: " .. tostring(db))
       global:postMessage(val({ type = "db_error", error = tostring(db) }, true))
       return
     end
     local handler_ok, ok2, handlers = pcall(handler, ok, db)
     if not handler_ok then
-      end_busy()
+      coop.release()
       print("[sqlite-worker] db_error: handler error: " .. tostring(ok2))
       global:postMessage(val({ type = "db_error", error = "handler error: " .. tostring(ok2) }, true))
       return
     end
     if not ok2 then
-      end_busy()
+      coop.release()
       print("[sqlite-worker] db_error: handler returned false: " .. tostring(handlers))
       global:postMessage(val({ type = "db_error", error = "handler returned false: " .. tostring(handlers) }, true))
       return
     end
     if verbose then print("[sqlite-worker] calling rpc.server") end
     rpc_handler = rpc.server(handlers)
-    end_busy()
+
+
+
+
+    coop.on_reacquire(function ()
+      db.db:reset_cache()
+    end)
+    coop.release()
     drain()
     if verbose then print("[sqlite-worker] worker fully initialized, signaling worker_ready") end
     global:postMessage(val({ type = "worker_ready" }, true))

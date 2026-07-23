@@ -46,20 +46,6 @@ return function (bundle_path, opts)
     end
   })
 
-  local function release_coop ()
-    worker:postMessage(val({ type = "coop_release" }, true))
-  end
-
-  document:addEventListener("visibilitychange", function ()
-    if document.hidden then
-      release_coop()
-    end
-  end)
-
-  js.window:addEventListener("pagehide", function ()
-    release_coop()
-  end)
-
   return core, util.promise(function (complete)
     worker.onmessage = function (_, ev)
       if ev.data and ev.data.type == "db_error" then

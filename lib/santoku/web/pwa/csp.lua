@@ -24,7 +24,8 @@ end
 
 
 
-function M.meta (hashes, opts)
+
+function M.policy (hashes, opts)
   opts = opts or {}
   local script = "'self' 'wasm-unsafe-eval'"
   for i = 1, #hashes do
@@ -44,8 +45,13 @@ function M.meta (hashes, opts)
     "base-uri 'self'",
     "form-action " .. (opts.form or "'self'"),
   }
+  return table.concat(dirs, "; ")
+end
+
+
+function M.meta (hashes, opts)
   return '<meta http-equiv="Content-Security-Policy" content="'
-    .. table.concat(dirs, "; ") .. '">'
+    .. M.policy(hashes, opts) .. '">'
 end
 
 return M

@@ -1,6 +1,6 @@
 local mustache = require("santoku.mustache")
 local arr = require("santoku.array")
-local template = mustache([[<% return readfile("res/pwa/sw.js"), false %>]]) -- luacheck: ignore
+local template = mustache([[<% return readfile("res/pwa/sw.js") %>]]) -- luacheck: ignore
 
 local function dq (s)
   return "\"" .. s .. "\""

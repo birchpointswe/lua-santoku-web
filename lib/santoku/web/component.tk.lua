@@ -1,6 +1,6 @@
 local lp = require("santoku.lpeg")
 
-local skeleton = [[ <% return readfile("res/web/component.js"), false %> ]]
+local skeleton = [[ <% return readfile("res/web/component.js") %> ]]
 
 local function replace(s, old, new)
   local i, j = s:find(old, 1, true)

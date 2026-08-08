@@ -16,8 +16,12 @@
         s.onload = function () { s.dataset.loaded = "1"; resolve(); };
         s.onerror = function () {
           s.remove();
-          if (++attempts < 3) setTimeout(tryLoad, 1000 * attempts);
-          else reject(new Error("Failed to load " + src));
+          if (++attempts < 4) {
+            var backoff = Math.min(1000 * Math.pow(2, attempts - 1), 3000);
+            setTimeout(tryLoad, backoff * (0.5 + Math.random()));
+          } else {
+            reject(new Error("Failed to load " + src));
+          }
         };
         document.head.appendChild(s);
       })();

@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 
 int luaopen_santoku_web_rpc (lua_State *);
 

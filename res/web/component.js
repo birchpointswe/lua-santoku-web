@@ -62,5 +62,6 @@
 %DESTROY%
     root.innerHTML = "";
   };
-  customElements.define("%TAG%", _Ctor);
+  var _tag = "%TAG%";
+  if (!customElements.get(_tag)) customElements.define(_tag, _Ctor);
 })();

@@ -145,8 +145,12 @@ static int rpc_server_handler (lua_State *L) {
   lua_insert(L, first_arg_idx);
   int rc = lua_pcall(L, nargs, LUA_MULTRET, 0);
   if (rc != 0) {
-    size_t elen;
+    size_t elen = 0;
     const char *estr = lua_tolstring(L, -1, &elen);
+    if (!estr) {
+      estr = "(error object is not a string)";
+      elen = strlen(estr);
+    }
     tk_rpc_respond_error(port_h, estr, (int)elen);
     lua_pop(L, 1);
     return 0;

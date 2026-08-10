@@ -6,9 +6,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-
-
-
 #define DOM_CMD_INIT_SIZE  (64 * 1024)
 #define DOM_STR_INIT_SIZE  (256 * 1024)
 #define DOM_READ_CMD_SIZE  (8 * 1024)
@@ -44,9 +41,6 @@
 #define ROP_ELEMENT_AT  0x88
 #define ROP_PROP        0x89
 
-
-
-
 static uint8_t *cmd_buf = NULL;
 static uint8_t *str_buf = NULL;
 static uint32_t cmd_buf_size = 0;
@@ -54,8 +48,6 @@ static uint32_t str_buf_size = 0;
 static uint32_t cmd_pos = 0;
 static uint32_t str_pos = 0;
 static uint32_t cmd_count = 0;
-
-
 
 static uint8_t read_cmd_buf[DOM_READ_CMD_SIZE];
 static uint8_t read_res_buf[DOM_READ_RES_SIZE];
@@ -90,8 +82,6 @@ static void dom_reset (void) {
   cmd_count = 0;
 }
 
-
-
 static int ensure_cmd_capacity (uint32_t needed) {
   if (cmd_buf == NULL) {
     uint32_t init = DOM_CMD_INIT_SIZE;
@@ -110,7 +100,6 @@ static int ensure_cmd_capacity (uint32_t needed) {
   cmd_buf_size = new_size;
   return 1;
 }
-
 
 static int ensure_str_capacity (uint32_t needed) {
   if (str_buf == NULL) {
@@ -131,18 +120,11 @@ static int ensure_str_capacity (uint32_t needed) {
   return 1;
 }
 
-
-
-
 static int ensure_op_capacity (uint32_t cmd_bytes, uint32_t str_bytes) {
   if (!ensure_cmd_capacity(cmd_bytes)) return 0;
   if (str_bytes > 0 && !ensure_str_capacity(str_bytes)) return 0;
   return 1;
 }
-
-
-
-
 
 static void write_u8 (uint8_t v) {
   if (cmd_pos < cmd_buf_size)
@@ -164,7 +146,6 @@ static void write_i32 (int32_t v) {
 }
 
 static uint32_t write_str (const char *s, size_t len) {
-
 
   if (str_pos + len + 1 > str_buf_size) {
     if (!ensure_str_capacity((uint32_t)(len + 1))) return 0;
@@ -439,17 +420,14 @@ static int l_dom_flush (lua_State *L) {
 
 static int l_dom_read (lua_State *L) {
 
-
-
-
-
   uint32_t saved_str_pos = str_pos;
   dom_read_reset();
   int nargs = lua_gettop(L);
   for (int i = 1; i <= nargs; i++) {
     luaL_checktype(L, i, LUA_TTABLE);
     lua_rawgeti(L, i, 1);
-    const char *op = luaL_checkstring(L, -1);
+    luaL_checktype(L, -1, LUA_TSTRING);
+    const char *op = lua_tostring(L, -1);
     lua_pop(L, 1);
     if (strcmp(op, "text") == 0) {
       lua_rawgeti(L, i, 2);
@@ -523,6 +501,8 @@ static int l_dom_read (lua_State *L) {
       read_write_u32(write_str(id, id_len));
       read_write_u32(write_str(name, name_len));
       lua_pop(L, 2);
+    } else {
+      return luaL_error(L, "dom.read: unknown op '%s'", op);
     }
     read_cmd_count++;
   }
@@ -536,52 +516,58 @@ static int l_dom_read (lua_State *L) {
   );
 
   uint32_t rpos = 0;
-  uint32_t rspos = 0;
   int nresults = 0;
+
+  luaL_checkstack(L, (int)read_cmd_count + 2, "dom.read results");
 
   for (int i = 0; i < (int)read_cmd_count; i++) {
     uint8_t tag;
+    if (rpos >= DOM_READ_RES_SIZE)
+      break;
     memcpy(&tag, read_res_buf + rpos, 1);
     rpos++;
 
-    if (tag == 0) {
-      lua_pushnil(L);
-      nresults++;
-    } else if (tag == 1) {
+    if (tag == 1) {
       uint32_t soff, slen;
+      if (DOM_READ_RES_SIZE - rpos < 8)
+        break;
       memcpy(&soff, read_res_buf + rpos, 4); rpos += 4;
       memcpy(&slen, read_res_buf + rpos, 4); rpos += 4;
+      if (soff > DOM_READ_STR_SIZE || slen > DOM_READ_STR_SIZE - soff)
+        break;
       lua_pushlstring(L, (const char *)(read_str_buf + soff), slen);
-      nresults++;
     } else if (tag == 2) {
       int32_t val;
+      if (DOM_READ_RES_SIZE - rpos < 4)
+        break;
       memcpy(&val, read_res_buf + rpos, 4); rpos += 4;
       lua_pushinteger(L, val);
-      nresults++;
-    } else if (tag == 3) {
+    } else if (tag == 3 || tag == 4) {
+      int nfields = tag == 3 ? 6 : 5;
+      if (DOM_READ_RES_SIZE - rpos < (uint32_t)(nfields * 4))
+        break;
       lua_newtable(L);
-      for (int f = 0; f < 6; f++) {
+      for (int f = 0; f < nfields; f++) {
         float fv;
         memcpy(&fv, read_res_buf + rpos, 4); rpos += 4;
         lua_pushnumber(L, (lua_Number)fv);
         lua_rawseti(L, -2, f + 1);
       }
-      nresults++;
-    } else if (tag == 4) {
-      lua_newtable(L);
-      for (int f = 0; f < 5; f++) {
-        float fv;
-        memcpy(&fv, read_res_buf + rpos, 4); rpos += 4;
-        lua_pushnumber(L, (lua_Number)fv);
-        lua_rawseti(L, -2, f + 1);
-      }
-      nresults++;
     } else if (tag == 5) {
       uint8_t bval;
+      if (DOM_READ_RES_SIZE - rpos < 1)
+        break;
       memcpy(&bval, read_res_buf + rpos, 1); rpos++;
       lua_pushboolean(L, bval);
-      nresults++;
+    } else {
+      lua_pushnil(L);
     }
+    nresults++;
+  }
+
+  while (nresults < (int)read_cmd_count) {
+    lua_pushnil(L);
+    nresults++;
   }
 
   dom_read_reset();

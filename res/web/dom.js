@@ -214,17 +214,24 @@
     var rspos = 0;
     var encoder = new TextEncoder();
 
-    function writeNil () { heap[rpos] = 0; rpos++; }
+    var resEnd = resPtr + resSize;
+    function resFits (n) { return rpos + n <= resEnd; }
+    function writeNil () { if (!resFits(1)) return; heap[rpos] = 0; rpos++; }
     function writeStr (s) {
       var bytes = encoder.encode(s);
+      if (!resFits(9) || bytes.length > resStrSize - rspos) return writeNil();
       heap[rpos] = 1; rpos++;
       resView.setUint32(rpos, rspos, true); rpos += 4;
       resView.setUint32(rpos, bytes.length, true); rpos += 4;
       heap.set(bytes, resStrPtr + rspos);
       rspos += bytes.length;
     }
-    function writeI32 (v) { heap[rpos] = 2; rpos++; resView.setInt32(rpos, v, true); rpos += 4; }
+    function writeI32 (v) {
+      if (!resFits(5)) return writeNil();
+      heap[rpos] = 2; rpos++; resView.setInt32(rpos, v, true); rpos += 4;
+    }
     function writeRect (r) {
+      if (!resFits(25)) return writeNil();
       heap[rpos] = 3; rpos++;
       resView.setFloat32(rpos, r.top, true); rpos += 4;
       resView.setFloat32(rpos, r.left, true); rpos += 4;
@@ -234,6 +241,7 @@
       resView.setFloat32(rpos, r.height, true); rpos += 4;
     }
     function writeScroll () {
+      if (!resFits(21)) return writeNil();
       heap[rpos] = 4; rpos++;
       resView.setFloat32(rpos, window.scrollX, true); rpos += 4;
       resView.setFloat32(rpos, window.scrollY, true); rpos += 4;
@@ -241,7 +249,10 @@
       resView.setFloat32(rpos, window.innerHeight, true); rpos += 4;
       resView.setFloat32(rpos, document.documentElement.scrollHeight, true); rpos += 4;
     }
-    function writeBool (v) { heap[rpos] = 5; rpos++; heap[rpos] = v ? 1 : 0; rpos++; }
+    function writeBool (v) {
+      if (!resFits(2)) return writeNil();
+      heap[rpos] = 5; rpos++; heap[rpos] = v ? 1 : 0; rpos++;
+    }
 
     for (var i = 0; i < count; i++) {
       var op = heap[pos]; pos++;

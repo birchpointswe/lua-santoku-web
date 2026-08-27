@@ -6,6 +6,9 @@ scaffolding). The code is compiled to WebAssembly with Emscripten and runs insid
 browser (or node, for the test harness). Built on base `santoku`, `santoku-mustache`,
 `santoku-http`, `santoku-lpeg`, and `lua-cjson`.
 
+Documentation and runnable examples: [santoku.dev](https://santoku.dev), under the
+`santoku-web` tab.
+
 This README is a usage guide, not an API reference. The tests are the spec: each module
 points at the test that exercises its surface. Read those for the exhaustive list; read
 this (and [`doc/usage.md`](doc/usage.md)) for how the layers fit together. For the

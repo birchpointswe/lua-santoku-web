@@ -4,8 +4,8 @@
   <meta charset="{{charset}}">
   {{#base_href}}<base href="{{base_href}}">{{/base_href}}
   {{#title}}<title>{{title}}</title>{{/title}}
-  {{#title}}<meta name="apple-mobile-web-app-title" content="{{title}}">{{/title}}
-  {{#title}}<meta name="application-name" content="{{title}}">{{/title}}
+  {{^plain}}{{#title}}<meta name="apple-mobile-web-app-title" content="{{title}}">{{/title}}{{/plain}}
+  {{^plain}}{{#title}}<meta name="application-name" content="{{title}}">{{/title}}{{/plain}}
   {{#description}}<meta name="description" content="{{description}}">{{/description}}
   {{#description}}<meta name="msapplication-tooltip" content="{{description}}">{{/description}}
   {{#keywords}}<meta name="keywords" content="{{keywords}}">{{/keywords}}
@@ -13,15 +13,17 @@
   {{#theme_color}}<meta name="theme-color" content="{{theme_color}}">{{/theme_color}}
   {{#theme_color}}<meta name="msapplication-navbutton-color" content="{{theme_color}}">{{/theme_color}}
   {{#theme_color}}<meta name="msapplication-TileColor" content="{{theme_color}}">{{/theme_color}}
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  {{^plain}}<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">{{/plain}}
   {{#ios_icon}}<link rel="apple-touch-icon" href="{{ios_icon}}">{{/ios_icon}}
   {{^ios_icon}}{{#icon}}<link rel="apple-touch-icon" href="{{icon}}">{{/icon}}{{/ios_icon}}
   {{#ms_icon}}<meta name="msapplication-TileImage" content="{{ms_icon}}">{{/ms_icon}}
   {{#favicon_ico}}<link rel="icon" href="{{favicon_ico}}" sizes="any">{{/favicon_ico}}
   {{^favicon_ico}}{{#favicon}}<link rel="icon" href="{{favicon}}" sizes="any">{{/favicon}}{{/favicon_ico}}
   {{#favicon_svg}}<link rel="icon" href="{{favicon_svg}}" type="image/svg+xml">{{/favicon_svg}}
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
+  {{^plain}}<meta http-equiv="X-UA-Compatible" content="IE=edge">{{/plain}}
+  {{#viewport}}<meta name="viewport" content="{{viewport}}">{{/viewport}}
+  {{^viewport}}<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">{{/viewport}}
+  {{^plain}}
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="msapplication-starturl" content="">
@@ -31,6 +33,7 @@
   <meta name="nightmode" content="enable">
   <meta name="layoutmode" content="fitscreen">
   <meta name="imagemode" content="force">
+  {{/plain}}
   {{{head}}}
   {{#sw}}
   {{#initial}}

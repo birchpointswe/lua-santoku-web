@@ -54,8 +54,13 @@ static uint8_t read_res_buf[DOM_READ_RES_SIZE];
 static uint8_t read_str_buf[DOM_READ_STR_SIZE];
 static uint32_t read_cmd_pos = 0;
 static uint32_t read_cmd_count = 0;
-static uint32_t read_res_pos = 0;
-static uint32_t read_str_pos = 0;
+static uint32_t read_str_used = 0;
+static int str_buf_pinned = 0;
+
+static void dom_wipe (void *p, size_t n) {
+  volatile uint8_t *q = (volatile uint8_t *) p;
+  while (n --) *q ++ = 0;
+}
 
 EMSCRIPTEN_KEEPALIVE uint8_t *dom_get_cmd_buf (void) { return cmd_buf; }
 EMSCRIPTEN_KEEPALIVE uint8_t *dom_get_str_buf (void) { return str_buf; }
@@ -113,8 +118,12 @@ static int ensure_str_capacity (uint32_t needed) {
   if (str_pos + needed <= str_buf_size) return 1;
   uint32_t new_size = str_buf_size;
   while (new_size < str_pos + needed) new_size *= 2;
-  uint8_t *new_buf = (uint8_t *)realloc(str_buf, new_size);
+  uint8_t *new_buf = (uint8_t *)malloc(new_size);
   if (!new_buf) return 0;
+  memcpy(new_buf, str_buf, str_buf_size);
+  if (!str_buf_pinned)
+    dom_wipe(str_buf, str_buf_size);
+  free(str_buf);
   str_buf = new_buf;
   str_buf_size = new_size;
   return 1;
@@ -172,8 +181,10 @@ static void read_write_u32 (uint32_t v) {
 static void dom_read_reset (void) {
   read_cmd_pos = 0;
   read_cmd_count = 0;
-  read_res_pos = 0;
-  read_str_pos = 0;
+  if (read_str_used) {
+    dom_wipe(read_str_buf, read_str_used);
+    read_str_used = 0;
+  }
 }
 
 EM_JS(void, dom_js_read_flush, (
@@ -414,7 +425,11 @@ static int l_dom_flush (lua_State *L) {
   uint8_t *cb = cmd_buf;
   uint8_t *sb = str_buf;
   dom_reset();
+  str_buf_pinned ++;
   dom_js_flush(cb, cl, sb, sl, cc);
+  str_buf_pinned --;
+  if (str_buf == sb && sl <= str_buf_size && str_pos < sl)
+    dom_wipe(str_buf + str_pos, sl - str_pos);
   return 0;
 }
 
@@ -507,6 +522,7 @@ static int l_dom_read (lua_State *L) {
     read_cmd_count++;
   }
 
+  str_buf_pinned ++;
   dom_js_read_flush(
     read_cmd_buf, read_cmd_pos,
     str_buf, str_pos,
@@ -514,6 +530,7 @@ static int l_dom_read (lua_State *L) {
     read_res_buf, DOM_READ_RES_SIZE,
     read_str_buf, DOM_READ_STR_SIZE
   );
+  str_buf_pinned --;
 
   uint32_t rpos = 0;
   int nresults = 0;
@@ -533,8 +550,11 @@ static int l_dom_read (lua_State *L) {
         break;
       memcpy(&soff, read_res_buf + rpos, 4); rpos += 4;
       memcpy(&slen, read_res_buf + rpos, 4); rpos += 4;
-      if (soff > DOM_READ_STR_SIZE || slen > DOM_READ_STR_SIZE - soff)
+      if (soff > DOM_READ_STR_SIZE || slen > DOM_READ_STR_SIZE - soff) {
+        read_str_used = DOM_READ_STR_SIZE;
         break;
+      }
+      if (soff + slen > read_str_used) read_str_used = soff + slen;
       lua_pushlstring(L, (const char *)(read_str_buf + soff), slen);
     } else if (tag == 2) {
       int32_t val;

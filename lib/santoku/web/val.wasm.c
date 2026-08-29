@@ -642,6 +642,11 @@ static inline void args_to_handles (lua_State *L, int n) {
 static char *tk_scratch = NULL;
 static int tk_scratch_size = 0;
 
+static inline void tk_wipe (void *p, size_t n) {
+  volatile unsigned char *q = (volatile unsigned char *) p;
+  while (n --) *q ++ = 0;
+}
+
 static inline void tk_scratch_init (void) {
   if (!tk_scratch) {
     tk_scratch = (char *)malloc(TK_SCRATCH_INIT);
@@ -654,6 +659,7 @@ static inline char *tk_scratch_get (int needed) {
   if (needed <= tk_scratch_size)
     return tk_scratch;
   if (needed <= TK_SCRATCH_MAX) {
+    tk_wipe(tk_scratch, (size_t) tk_scratch_size);
     free(tk_scratch);
     tk_scratch = (char *)malloc(needed);
     tk_scratch_size = needed;
@@ -672,12 +678,14 @@ static inline void push_js_string (lua_State *L, int h) {
   int len = tk_js_string_to_buf(h, tk_scratch, tk_scratch_size);
   if (len >= 0) {
     lua_pushlstring(L, tk_scratch, len);
+    tk_wipe(tk_scratch, (size_t) len);
     return;
   }
   int needed = -len;
   char *buf = tk_scratch_get(needed);
   len = tk_js_string_to_buf(h, buf, needed);
   lua_pushlstring(L, buf, len);
+  tk_wipe(buf, len > 0 ? (size_t) len : 0);
   tk_scratch_free(buf);
 }
 
@@ -1407,6 +1415,7 @@ static inline int mta_str (lua_State *L) {
   char *buf = tk_scratch_get(len);
   tk_js_uint8array_copy_to(h, buf);
   lua_pushlstring(L, buf, len);
+  tk_wipe(buf, len > 0 ? (size_t) len : 0);
   tk_scratch_free(buf);
   return 1;
 }

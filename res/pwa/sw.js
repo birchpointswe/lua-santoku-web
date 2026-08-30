@@ -16,8 +16,7 @@ self.addEventListener("install", function (ev) {
       var p = PRECACHE[i];
       if (noCache(p)) continue;
       var url = new URL(p, self.location.origin).href;
-      if (await cache.match(url)) continue;
-      var resp = await fetch(p);
+      var resp = await fetch(p, { cache: "reload" });
       if (!resp.ok) throw new Error("precache failed: " + p + " (" + resp.status + ")");
       await cache.put(url, resp);
     }

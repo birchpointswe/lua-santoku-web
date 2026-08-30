@@ -48,6 +48,9 @@ local function await (p, callback)
   if not ctx then
     error("await called outside async context")
   end
+  if ctx.co.running() ~= ctx.thread then
+    error("await called from a nested call outside its async context")
+  end
   p["then"]:call(p,
     function (_, res)
       queue[#queue + 1] = { ctx, true, res }

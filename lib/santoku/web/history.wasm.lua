@@ -100,7 +100,7 @@ return function (opts)
 
     if mark_id and mark_id < current_id then
       local diff = current_id - mark_id
-      popmark_target = path
+      popmark_target = { path = path, id = mark_id }
       history:go(-diff)
       return true
     else
@@ -110,7 +110,11 @@ return function (opts)
   end
 
   local function back()
-    history:back()
+    if get_current_id() > 0 then
+      history:back()
+      return true
+    end
+    return false
   end
 
   local function on_popstate(callback)
@@ -121,7 +125,9 @@ return function (opts)
     if popmark_target then
       local target = popmark_target
       popmark_target = nil
-      replace(target)
+      if get_current_id() == target.id then
+        replace(target.path)
+      end
     end
     for _, callback in ipairs(popstate_callbacks) do
       callback()

@@ -313,8 +313,8 @@
           var y = readU32(view, pos); pos += 4;
           var el = document.elementFromPoint(x, y);
           if (!el) { writeNil(); break; }
-          var bullet = el.closest ? el.closest("[data-id]") : null;
-          if (bullet && bullet.id) writeStr(bullet.id); else writeNil();
+          var owner = el.closest ? el.closest("[data-id]") : null;
+          if (owner && owner.id) writeStr(owner.id); else writeNil();
           break;
         }
         case 0x89: {

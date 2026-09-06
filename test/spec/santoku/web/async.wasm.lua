@@ -4,6 +4,7 @@ local js = require("santoku.web.js")
 local val = require("santoku.web.val")
 local err = require("santoku.error")
 local validate = require("santoku.validate")
+local env = require("santoku.env")
 
 local assert = err.assert
 local eq = validate.isequal
@@ -11,7 +12,7 @@ local eq = validate.isequal
 local global = js.global
 local Promise = js.Promise
 
-if not str.isempty(os.getenv("TK_WEB_SANITIZE")) then
+if not str.isempty(env.var("TK_WEB_SANITIZE", nil)) then
   print("Skipping async tests when TK_WEB_SANITIZE is set.")
   return
 end
@@ -96,44 +97,6 @@ test("promise js exception", function ()
   end)
 end)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 val.global("setTimeout"):call(nil, function ()
 
   collectgarbage("collect")
@@ -144,16 +107,9 @@ val.global("setTimeout"):call(nil, function ()
 
   val.global("setTimeout"):call(nil, function ()
 
-
     assert(val.IDX_REF_TBL.n == 2, "IDX_REF_TBL.n ~= 2")
 
-
-
-
-
-
-
-    if os.getenv("TK_WEB_PROFILE") == "1" then
+    if env.var("TK_WEB_PROFILE", nil) == "1" then
       require("santoku.profile")()
     end
 

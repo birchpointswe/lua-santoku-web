@@ -3,6 +3,7 @@ local js = require("santoku.web.js")
 local val = require("santoku.web.val")
 local err = require("santoku.error")
 local validate = require("santoku.validate")
+local str = require("santoku.string")
 
 local assert = err.assert
 local eq = validate.isequal
@@ -23,11 +24,11 @@ test("Uint8Array:new(luaTable) with binary bytes", function ()
   assert(eq(5, arr.length))
   local s = val.lua(arr):str()
   assert(eq(5, #s))
-  assert(eq(0, string.byte(s, 1)))
-  assert(eq(0xFF, string.byte(s, 2)))
-  assert(eq(0x42, string.byte(s, 3)))
-  assert(eq(0x7F, string.byte(s, 4)))
-  assert(eq(0x80, string.byte(s, 5)))
+  assert(eq(0, str.byte(s, 1)))
+  assert(eq(0xFF, str.byte(s, 2)))
+  assert(eq(0x42, str.byte(s, 3)))
+  assert(eq(0x7F, str.byte(s, 4)))
+  assert(eq(0x80, str.byte(s, 5)))
 end)
 
 test("val.bytes(luaString) constructs Uint8Array from raw bytes", function ()
@@ -35,9 +36,9 @@ test("val.bytes(luaString) constructs Uint8Array from raw bytes", function ()
   assert(eq(3, arr.length))
   assert(eq(true, arr:instanceof(js.Uint8Array)))
   local s = val.lua(arr):str()
-  assert(eq(0, string.byte(s, 1)))
-  assert(eq(0xFF, string.byte(s, 2)))
-  assert(eq(0x42, string.byte(s, 3)))
+  assert(eq(0, str.byte(s, 1)))
+  assert(eq(0xFF, str.byte(s, 2)))
+  assert(eq(0x42, str.byte(s, 3)))
 end)
 
 test("val.lua(uint8array):str() roundtrip preserves all byte values", function ()
@@ -47,7 +48,7 @@ test("val.lua(uint8array):str() roundtrip preserves all byte values", function (
   local s = val.lua(arr):str()
   assert(eq(256, #s))
   for i = 0, 255 do
-    assert(eq(i, string.byte(s, i + 1)))
+    assert(eq(i, str.byte(s, i + 1)))
   end
 end)
 
@@ -67,7 +68,7 @@ test("arr[0] = v direct write to Uint8Array from Lua", function ()
   local arr = js.Uint8Array:new(4)
   arr[0] = 100
   local s = val.lua(arr):str()
-  assert(eq(100, string.byte(s, 1)))
+  assert(eq(100, str.byte(s, 1)))
 end)
 
 test("arr[i] = v direct write at multiple indices", function ()
@@ -76,10 +77,10 @@ test("arr[i] = v direct write at multiple indices", function ()
   arr[1] = 200
   arr[3] = 50
   local s = val.lua(arr):str()
-  assert(eq(100, string.byte(s, 1)))
-  assert(eq(200, string.byte(s, 2)))
-  assert(eq(0, string.byte(s, 3)))
-  assert(eq(50, string.byte(s, 4)))
+  assert(eq(100, str.byte(s, 1)))
+  assert(eq(200, str.byte(s, 2)))
+  assert(eq(0, str.byte(s, 3)))
+  assert(eq(50, str.byte(s, 4)))
 end)
 
 test("arr[i] = v then arr[i] roundtrip", function ()
@@ -93,7 +94,6 @@ test("arr[i] = v then arr[i] roundtrip", function ()
 end)
 
 test("Uint8Array wrapping an ArrayBuffer reads correctly", function ()
-
 
   local src = js.Uint8Array:new({ 0x11, 0x22, 0x33, 0x44 })
   local ab = src.buffer
@@ -124,7 +124,6 @@ test("Nested Object:new() with property-chain assignment", function ()
   opt.publicKey.extensions.prf.eval = js.window.Object:new()
   opt.publicKey.extensions.prf.eval.first = js.Uint8Array:new({ 0x42, 0x43 })
 
-
   local salt = opt.publicKey.extensions.prf.eval.first
   assert(salt ~= nil, "salt is nil after chain assignment")
   assert(eq(2, salt.length))
@@ -151,7 +150,6 @@ test("Property assignment on a nested object via chain mutates real JS object", 
 end)
 
 test("ArrayBuffer from Promise resolution: Uint8Array wrapping and indexing", function ()
-
 
   local async_mod = require("santoku.web.async")
   local p = js.Promise:new(function (this, resolve)
@@ -188,7 +186,6 @@ test("Uint8Array from Promise resolution: direct access", function ()
 end)
 
 test("Nested object containing ArrayBuffer from Promise resolution", function ()
-
 
   local async_mod = require("santoku.web.async")
   local p = js.Promise:new(function (this, resolve)
@@ -228,14 +225,13 @@ test("Uint8Array constructed from val(table, true) wraps Lua-table-as-JS-array",
   local u8 = js.Uint8Array:new(js_arr)
   assert(eq(4, u8.length))
   local s = val.lua(u8):str()
-  assert(eq(1, string.byte(s, 1)))
-  assert(eq(2, string.byte(s, 2)))
-  assert(eq(3, string.byte(s, 3)))
-  assert(eq(4, string.byte(s, 4)))
+  assert(eq(1, str.byte(s, 1)))
+  assert(eq(2, str.byte(s, 2)))
+  assert(eq(3, str.byte(s, 3)))
+  assert(eq(4, str.byte(s, 4)))
 end)
 
 test("Lua-table-proxied-to-JS uses 0-indexed access from JS side", function ()
-
 
   local t = { 10, 20, 30 }
   local proxy = val(t):lua()

@@ -1,4 +1,5 @@
 local co_factory = require("santoku.co")
+local arr = require("santoku.array")
 local js = require("santoku.web.js")
 local val = require("santoku.web.val")
 
@@ -12,7 +13,7 @@ local globalThis = val.global("globalThis")
 
 globalThis.__luaAsyncDrain = function ()
   while #queue > 0 do
-    local item = table.remove(queue, 1)
+    local item = select(2, arr.shift(queue))
     local ctx, ok, res = item[1], item[2], item[3]
     if ctx.co.status(ctx.thread) == "suspended" then
       local prev = current_ctx

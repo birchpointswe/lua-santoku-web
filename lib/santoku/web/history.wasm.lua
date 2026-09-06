@@ -1,3 +1,4 @@
+local arr = require("santoku.array")
 local js = require("santoku.web.js")
 local val = require("santoku.web.val")
 
@@ -118,7 +119,7 @@ return function (opts)
   end
 
   local function on_popstate(callback)
-    table.insert(popstate_callbacks, callback)
+    arr.push(popstate_callbacks, callback)
   end
 
   window:addEventListener("popstate", function()

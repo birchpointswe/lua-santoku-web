@@ -4,6 +4,7 @@ local tbl = require("santoku.table")
 local err = require("santoku.error")
 local validate = require("santoku.validate")
 local val = require("santoku.web.val")
+local env = require("santoku.env")
 
 local assert = err.assert
 local eq = validate.isequal
@@ -60,7 +61,6 @@ test("from number", function ()
 end)
 
 test("from boolean", function ()
-
 
   test("creates a boolean value", function ()
     local a = val(true)
@@ -245,19 +245,11 @@ test("new Map([[1, 2], [3, 4]])", function ()
 
 end)
 
-
-
-
-
-
-
 test("set & call function", function ()
 
   local obj = val.global("Object"):call(nil)
 
   obj:set("square", function (_, n)
-
-
 
     assert(eq(20, n))
     return n * n
@@ -293,7 +285,6 @@ test("array vals", function ()
   local t = { 1, 2, 3, 4, 5 }
   local Object = val.global("Object")
   local vi = 1
-
 
   Object:get("values"):call(nil, t):lua():forEach(function (_, v)
     assert(eq(vi, v))
@@ -352,16 +343,9 @@ val.global("setTimeout"):call(nil, function ()
 
   val.global("setTimeout"):call(nil, function ()
 
-
     assert(val.IDX_REF_TBL.n == 2, "IDX_REF_TBL.n ~= 2")
 
-
-
-
-
-
-
-    if os.getenv("TK_WEB_PROFILE") == "1" then
+    if env.var("TK_WEB_PROFILE", nil) == "1" then
       require("santoku.profile")()
     end
 

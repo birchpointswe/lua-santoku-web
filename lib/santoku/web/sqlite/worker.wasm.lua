@@ -1,3 +1,4 @@
+local arr = require("santoku.array")
 local js = require("santoku.web.js")
 local val = require("santoku.web.val")
 local sqlite = require("santoku.web.sqlite")
@@ -27,7 +28,7 @@ return function (db_path, opts, handler)
     async(function ()
       while #pending > 0 do
         coop.acquire()
-        local ev = table.remove(pending, 1)
+        local ev = select(2, arr.shift(pending))
         local ok, e = pcall(rpc_handler, ev)
         if not ok then
           print("[sqlite-worker] dispatch error: " .. tostring(e))
@@ -90,9 +91,6 @@ return function (db_path, opts, handler)
     end
     if verbose then print("[sqlite-worker] calling rpc.server") end
     rpc_handler = rpc.server(handlers)
-
-
-
 
     coop.on_reacquire(function ()
       db.db:reset_cache()

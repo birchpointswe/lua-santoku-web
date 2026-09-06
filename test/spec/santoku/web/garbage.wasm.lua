@@ -2,6 +2,7 @@ local err = require("santoku.error")
 local validate = require("santoku.validate")
 local test = require("santoku.test")
 local val = require("santoku.web.val")
+local env = require("santoku.env")
 
 local assert = err.assert
 local eq = validate.isequal
@@ -45,16 +46,9 @@ val.global("setTimeout"):call(nil, function ()
 
   val.global("setTimeout"):call(nil, function ()
 
-
     assert(val.IDX_REF_TBL.n == 2, "IDX_REF_TBL.n ~= 2")
 
-
-
-
-
-
-
-    if os.getenv("TK_WEB_PROFILE") == "1" then
+    if env.var("TK_WEB_PROFILE", nil) == "1" then
       require("santoku.profile")()
     end
 

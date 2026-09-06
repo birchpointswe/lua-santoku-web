@@ -1,4 +1,5 @@
 local lp = require("santoku.lpeg")
+local arr = require("santoku.array")
 
 local skeleton = [[ <% return readfile("res/web/component.js") %> ]]
 
@@ -39,7 +40,7 @@ return function (tag, html, opts)
   out = replace(out, "%BODY%", escape_tl(body))
   out = replace(out, "%INIT%", init)
   out = replace(out, "%DESTROY%", destroy)
-  out = replace(out, "%DEPS%", table.concat(deps_parts, ","))
+  out = replace(out, "%DEPS%", arr.concat(deps_parts, ","))
   if opts and opts.js then out = opts.js(out) end
   return out
 end

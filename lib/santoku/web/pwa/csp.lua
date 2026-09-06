@@ -1,10 +1,7 @@
 local str = require("santoku.string")
+local arr = require("santoku.array")
 
 local M = {}
-
-
-
-
 
 function M.script_hashes (html)
   local hashes = {}
@@ -20,10 +17,6 @@ function M.script_hashes (html)
   end
   return hashes
 end
-
-
-
-
 
 function M.policy (hashes, opts)
   opts = opts or {}
@@ -45,9 +38,8 @@ function M.policy (hashes, opts)
     "base-uri 'self'",
     "form-action " .. (opts.form or "'self'"),
   }
-  return table.concat(dirs, "; ")
+  return arr.concat(dirs, "; ")
 end
-
 
 function M.meta (hashes, opts)
   return '<meta http-equiv="Content-Security-Policy" content="'

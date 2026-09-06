@@ -2,10 +2,11 @@ local test = require("santoku.test")
 local str = require("santoku.string")
 local val = require("santoku.web.val")
 local err = require("santoku.error")
+local env = require("santoku.env")
 
 local assert = err.assert
 
-if not str.isempty(os.getenv("TK_WEB_SANITIZE")) then
+if not str.isempty(env.var("TK_WEB_SANITIZE", nil)) then
   print("Skipping garbage-async tests when TK_WEB_SANITIZE is set")
   return
 end
@@ -30,16 +31,9 @@ val.global("setTimeout"):call(nil, function ()
 
   val.global("setTimeout"):call(nil, function ()
 
-
     assert(val.IDX_REF_TBL.n == 2, "IDX_REF_TBL.n ~= 2")
 
-
-
-
-
-
-
-    if os.getenv("TK_WEB_PROFILE") == "1" then
+    if env.var("TK_WEB_PROFILE", nil) == "1" then
       require("santoku.profile")()
     end
 
